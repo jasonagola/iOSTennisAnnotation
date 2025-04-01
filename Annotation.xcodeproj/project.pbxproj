@@ -6,11 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		6C1209BF2D517EFC0030BE3F /* CourtModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C1209BE2D517EFC0030BE3F /* CourtModel.swift */; };
-		6C415AD62D970226007607D3 /* FlexibleLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C415AD52D970226007607D3 /* FlexibleLayout.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		6C9BE5112D2F1ECD009361D1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,14 +24,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		6C1209BE2D517EFC0030BE3F /* CourtModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CourtModel.swift; sourceTree = "<group>"; };
-		6C415AD52D970226007607D3 /* FlexibleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlexibleLayout.swift; sourceTree = "<group>"; };
 		6C9BE5002D2F1ECB009361D1 /* Annotation.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Annotation.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C9BE5102D2F1ECD009361D1 /* AnnotationTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnnotationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6C9BE51A2D2F1ECD009361D1 /* AnnotationUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnnotationUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		6C591A3B2D9C403F001A2717 /* CustomUIComponents */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CustomUIComponents;
+			sourceTree = "<group>";
+		};
 		6C9BE5022D2F1ECB009361D1 /* Annotation */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Annotation;
@@ -82,8 +80,7 @@
 		6C9BE4F72D2F1ECB009361D1 = {
 			isa = PBXGroup;
 			children = (
-				6C415AD52D970226007607D3 /* FlexibleLayout.swift */,
-				6C1209BE2D517EFC0030BE3F /* CourtModel.swift */,
+				6C591A3B2D9C403F001A2717 /* CustomUIComponents */,
 				6C9BE5022D2F1ECB009361D1 /* Annotation */,
 				6C9BE5132D2F1ECD009361D1 /* AnnotationTests */,
 				6C9BE51D2D2F1ECD009361D1 /* AnnotationUITests */,
@@ -117,6 +114,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				6C591A3B2D9C403F001A2717 /* CustomUIComponents */,
 				6C9BE5022D2F1ECB009361D1 /* Annotation */,
 			);
 			name = Annotation;
@@ -245,8 +243,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6C1209BF2D517EFC0030BE3F /* CourtModel.swift in Sources */,
-				6C415AD62D970226007607D3 /* FlexibleLayout.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
