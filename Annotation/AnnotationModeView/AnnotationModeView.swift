@@ -53,45 +53,6 @@ struct AnnotationModules {
     ]
 }
 
-//TODO: Add selection ability for loaded annotations/ Possibly in RenderedAnnotationsView. Multiple click to cycle detection in same area
-//struct AnnotationCanvasView: View {
-//    let image: UIImage
-//    let selectedVisibleAnnotations: Set<String>
-//    @Binding var tapLocation: CGPoint?
-//    let onGesture: (CGPoint, AnnotationGestureEvent) -> Void
-//
-//    var body: some View {
-//        ZStack {
-//            Image(uiImage: image)
-//                .resizable()
-//                // Ensure the image is shown at its intrinsic size with a topLeading alignment.
-//                .aspectRatio(contentMode: .fill)
-//                .frame(width: image.size.width, height: image.size.height, alignment: .topLeading)
-//                .clipped()
-//
-//            RenderedAnnotationsView(
-//                imageSize: image.size,
-//                selectedVisibleAnnotations: selectedVisibleAnnotations,
-//                tapLocation: tapLocation
-//            )
-//        }
-//        // Define a coordinate space for the gestures.
-//        .coordinateSpace(name: "annotationCanvas")
-//        .contentShape(Rectangle())
-//        .gesture(
-//            // Use a DragGesture with a minimum distance of 0 to capture taps.
-//            DragGesture(minimumDistance: 0)
-//                .onEnded { value in
-//                    // The location is already in the "annotationCanvas" coordinate space.
-//                    let location = value.location
-//                    tapLocation = location
-//                    onGesture(location, .tap(location))
-//                }
-//        )
-//        // Set the overall frame to match the image size.
-//        .frame(width: image.size.width, height: image.size.height)
-//    }
-//}
 
 class AnnotationCanvasView: UIView {
     private var cancellable: AnyCancellable?
@@ -324,12 +285,12 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
         guard canvasSize.width > 0 && canvasSize.height > 0 else { return }
         contentSize = canvasSize
         
-//        print("ContentSize in layout subviews: \(contentSize)")
+        print("Layout subviews: ContentSize:\(contentSize), Container Size: \(self.bounds.size)")
         
         // Compute the minScale that fits the entire canvasView in the visible bounds
         let containerSize = self.bounds.size
-        let widthScale  = containerSize.width  / canvasSize.width
-        let heightScale = containerSize.height / canvasSize.height
+        let widthScale  = containerSize.width  / canvasSize.width * 15
+        let heightScale = containerSize.height / canvasSize.height * 15
         let minScale    = min(widthScale, heightScale)
         
         // Typical max zoom
