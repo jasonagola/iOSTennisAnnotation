@@ -72,3 +72,4 @@ struct AnnotationRenderUtilities {
 //    )
     // Add similar static functions for other annotation types.
 }
+

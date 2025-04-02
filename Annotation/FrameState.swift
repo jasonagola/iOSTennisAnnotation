@@ -21,6 +21,8 @@ class FrameState: ObservableObject {
     //    public var playerAnnotations = []
     
     @Published public var selectedAnnotationUUID = UUID()
+    @Published var annotationsAtTapLocation: [UUID] = []
+    @Published var previousAnnotationsAtTapLocation: [UUID] = []
     
     private var projectUUID: UUID?
     @Published var currentFrameUUID: UUID? {

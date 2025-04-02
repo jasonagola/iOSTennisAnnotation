@@ -12,15 +12,8 @@ struct RenderedAnnotationsView: View {
     let imageSize: CGSize
     let selectedVisibleAnnotations: Set<String>
     
-    init(imageSize: CGSize, selectedVisibleAnnotations: Set<String>) {
-        self.imageSize = imageSize
-        self.selectedVisibleAnnotations = selectedVisibleAnnotations
-        print("Selected Visible Annotations: \(selectedVisibleAnnotations)")
-    }
-    
     var body: some View {
         ZStack {
-            // For example, if "Ball Detection" is one of the selected types:
             if selectedVisibleAnnotations.contains("Ball Detection") {
                 AnnotationRenderUtilities.renderBallDetectionAnnotations(
                     imageSize: imageSize,
@@ -28,7 +21,7 @@ struct RenderedAnnotationsView: View {
                     selectedAnnotationUUID: frameState.selectedAnnotationUUID
                 )
             }
-            // Add conditions for other annotation types as needed.
-        }
+            // Additional annotation modules as needed.
+        }  
     }
 }

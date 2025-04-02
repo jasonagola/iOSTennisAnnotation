@@ -54,9 +54,49 @@ struct AnnotationModules {
 }
 
 //TODO: Add selection ability for loaded annotations/ Possibly in RenderedAnnotationsView. Multiple click to cycle detection in same area
+//struct AnnotationCanvasView: View {
+//    let image: UIImage
+//    let selectedVisibleAnnotations: Set<String>
+//    @Binding var tapLocation: CGPoint?
+//    let onGesture: (CGPoint, AnnotationGestureEvent) -> Void
+//
+//    var body: some View {
+//        ZStack {
+//            Image(uiImage: image)
+//                .resizable()
+//                // Ensure the image is shown at its intrinsic size with a topLeading alignment.
+//                .aspectRatio(contentMode: .fill)
+//                .frame(width: image.size.width, height: image.size.height, alignment: .topLeading)
+//                .clipped()
+//
+//            RenderedAnnotationsView(
+//                imageSize: image.size,
+//                selectedVisibleAnnotations: selectedVisibleAnnotations,
+//                tapLocation: tapLocation
+//            )
+//        }
+//        // Define a coordinate space for the gestures.
+//        .coordinateSpace(name: "annotationCanvas")
+//        .contentShape(Rectangle())
+//        .gesture(
+//            // Use a DragGesture with a minimum distance of 0 to capture taps.
+//            DragGesture(minimumDistance: 0)
+//                .onEnded { value in
+//                    // The location is already in the "annotationCanvas" coordinate space.
+//                    let location = value.location
+//                    tapLocation = location
+//                    onGesture(location, .tap(location))
+//                }
+//        )
+//        // Set the overall frame to match the image size.
+//        .frame(width: image.size.width, height: image.size.height)
+//    }
+//}
 
 class AnnotationCanvasView: UIView {
     private var cancellable: AnyCancellable?
+    @EnvironmentObject private var frameState: FrameState
+    private var lastTapLocation: CGPoint?
     
     // The image to display.
     var image: UIImage? {
@@ -99,6 +139,16 @@ class AnnotationCanvasView: UIView {
     
     // Gesture callbacks
     var onGesture: ((CGPoint, AnnotationGestureEvent) -> Void)?
+    
+    @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
+       
+        // Capture the tap location in the overlay's coordinate space.
+        let location = gesture.location(in: annotationOverlayView)
+        print("AnnotationCanvasView HandleTap Gesture with location: \(location)")
+        // Instead of sending upward, call the onGesture callback if set.
+        onGesture?(location, .tap(location))
+        renderModuleAnnotations()
+    }
     
     // -----------------------------------------------------------------
     // MARK: - Init
@@ -163,10 +213,6 @@ class AnnotationCanvasView: UIView {
     // -----------------------------------------------------------------
     // MARK: - Gesture Handling
     // -----------------------------------------------------------------
-    @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
-        let location = gesture.location(in: annotationOverlayView)
-        onGesture?(location, .tap(location))
-    }
     
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
         let location = gesture.location(in: annotationOverlayView)
@@ -185,19 +231,18 @@ func renderModuleAnnotations() {
     DispatchQueue.main.async { [weak self] in
         guard let self = self else { return }
 
-        // Remove old views
-        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
+//        // Remove old views
+//        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
         
         guard let image = self.image else {
             print("No image loaded in renderModuleAnnotations")
             return
         }
-        //Handle SelectedAnnotationID logic within each module's renderAnnotations method
         
         let renderedAnnotationsView = RenderedAnnotationsView(
-                    imageSize: image.size,
-                    selectedVisibleAnnotations: self.selectedVisibleAnnotations
-                )
+            imageSize: image.size,
+            selectedVisibleAnnotations: self.selectedVisibleAnnotations
+        )
         
         let hostingController = UIHostingController(
             rootView: renderedAnnotationsView
@@ -279,7 +324,7 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
         guard canvasSize.width > 0 && canvasSize.height > 0 else { return }
         contentSize = canvasSize
         
-        print("ContentSize in layout subviews: \(contentSize)")
+//        print("ContentSize in layout subviews: \(contentSize)")
         
         // Compute the minScale that fits the entire canvasView in the visible bounds
         let containerSize = self.bounds.size
@@ -457,7 +502,9 @@ struct AnnotationModeView: View {
                         selectedAnnotationModule: viewModel.selectedAnnotationModule,
                         selectedVisibleAnnotations: viewModel.selectedVisibleAnnotations,
                         onGesture: { location, event in
-                            handleGesture(event, location: location, image: uiImage)
+                            Task {
+                                await handleGesture(event, location: location, image: uiImage)
+                            }
                         },
                         refreshToken: frameState.refreshToken
                     )
@@ -500,12 +547,7 @@ struct AnnotationModeView: View {
         _ event: AnnotationGestureEvent,
         location: CGPoint,
         image: UIImage
-    ) {
-        guard let module = viewModel.selectedAnnotationModule else {
-            print("AnnotationModeView: No selected annotation module for handling gesture.")
-            return
-        }
-        
+    ) async {
         let normalizedTap = CGPoint(
             x: location.x / image.size.width,
             y: location.y / image.size.height
@@ -513,11 +555,19 @@ struct AnnotationModeView: View {
         
         switch event {
         case .tap:
-            module.handleTap(at: normalizedTap)
+            if let module = viewModel.selectedAnnotationModule {
+                module.handleTap(at: normalizedTap)
+            }
+            
+            await frameState.runTapBehavior(location: normalizedTap, selectedVisibleAnnotations: viewModel.selectedVisibleAnnotations, selectedAnnotationModuleTitle: viewModel.selectedAnnotationModule?.title)
         case .dragChanged:
-            module.handleDragChanged(at: normalizedTap)
+            if let module = viewModel.selectedAnnotationModule {
+                module.handleDragChanged(at: normalizedTap)
+            }
         case .dragEnded:
-            module.handleDragEnded(at: normalizedTap)
+            if let module = viewModel.selectedAnnotationModule {
+                module.handleDragEnded(at: normalizedTap)
+            }
         }
     }
 
