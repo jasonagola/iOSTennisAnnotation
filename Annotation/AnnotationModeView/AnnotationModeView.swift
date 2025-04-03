@@ -20,7 +20,7 @@ protocol AnnotationModule: ObservableObject {
     
     //Render Method
     
-    func renderAnnotations(
+    func renderToolOverlay(
         imageSize: CGSize
     ) -> AnyView
     
@@ -84,19 +84,19 @@ class AnnotationCanvasView: UIView {
     
     var selectedAnnotationModule: (any AnnotationModule)? {
         didSet {
-            renderModuleAnnotations()
+            renderOverlays()
         }
     }
     
     var selectedVisibleAnnotations: Set<String> = [] {
         didSet {
-            renderModuleAnnotations()
+            renderOverlays()
         }
     }
 
     // Subviews for annotation overlay, gestures, etc.
     private let imageView = UIImageView()
-    let annotationOverlayView = UIView()
+    let overlayView = UIView()
     
     // Gesture callbacks
     var onGesture: ((CGPoint, AnnotationGestureEvent) -> Void)?
@@ -104,11 +104,11 @@ class AnnotationCanvasView: UIView {
     @objc private func handleTapGesture(_ gesture: UITapGestureRecognizer) {
        
         // Capture the tap location in the overlay's coordinate space.
-        let location = gesture.location(in: annotationOverlayView)
+        let location = gesture.location(in: overlayView)
         print("AnnotationCanvasView HandleTap Gesture with location: \(location)")
         // Instead of sending upward, call the onGesture callback if set.
         onGesture?(location, .tap(location))
-        renderModuleAnnotations()
+        renderOverlays()
     }
     
     // -----------------------------------------------------------------
@@ -141,9 +141,9 @@ class AnnotationCanvasView: UIView {
         imageView.frame = bounds
         addSubview(imageView)
         
-        annotationOverlayView.backgroundColor = .clear
-        annotationOverlayView.frame = bounds
-        addSubview(annotationOverlayView)
+        overlayView.backgroundColor = .clear
+        overlayView.frame = bounds
+        addSubview(overlayView)
         
         setupGestureRecognizers()
     }
@@ -152,12 +152,15 @@ class AnnotationCanvasView: UIView {
         // Tap gesture
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapGesture(_:)))
         tapGesture.delegate = self
-        annotationOverlayView.addGestureRecognizer(tapGesture)
+        overlayView.addGestureRecognizer(tapGesture)
         
         // Pan gesture for drag events.
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         panGesture.delegate = self
-        annotationOverlayView.addGestureRecognizer(panGesture)
+        //Enforce pass down drag events to Annotation Modules to be 1 finger drag gestures only for drawing or other methods
+        panGesture.minimumNumberOfTouches = 1
+        panGesture.maximumNumberOfTouches = 1
+        overlayView.addGestureRecognizer(panGesture)
     }
     
     // -----------------------------------------------------------------
@@ -166,9 +169,9 @@ class AnnotationCanvasView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         imageView.frame = bounds
-        annotationOverlayView.frame = bounds
+        overlayView.frame = bounds
 
-        print("[AnnotationCanvasView] layoutSubviews called. Bounds: \(bounds)")
+//        print("[AnnotationCanvasView] layoutSubviews called. Bounds: \(bounds)")
     }
     
     // -----------------------------------------------------------------
@@ -176,7 +179,7 @@ class AnnotationCanvasView: UIView {
     // -----------------------------------------------------------------
     
     @objc private func handlePanGesture(_ gesture: UIPanGestureRecognizer) {
-        let location = gesture.location(in: annotationOverlayView)
+        let location = gesture.location(in: overlayView)
         switch gesture.state {
         case .changed:
             onGesture?(location, .dragChanged(location))
@@ -188,41 +191,51 @@ class AnnotationCanvasView: UIView {
     }
     
 
-func renderModuleAnnotations() {
-    DispatchQueue.main.async { [weak self] in
-        guard let self = self else { return }
+    func renderOverlays() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-//        // Remove old views
-//        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
-        
-        guard let image = self.image else {
-            print("No image loaded in renderModuleAnnotations")
-            return
+    //        // Remove old views
+    //        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
+            
+            guard let image = self.image else {
+                print("No image loaded in renderModuleAnnotations")
+                return
+            }
+            
+            let renderedAnnotationsView = RenderedAnnotationsView(
+                imageSize: image.size,
+                selectedVisibleAnnotations: self.selectedVisibleAnnotations,
+                selectedAnnotationModule: selectedAnnotationModule
+            )
+            
+            let annotationHost = UIHostingController(rootView: renderedAnnotationsView)
+            annotationHost.view.backgroundColor = .clear
+            embed(hostingController: annotationHost)
+
+            // 🧩 Tool Overlay (e.g., live drawing)
+            let toolOverlay = ToolRenderOverlayView(
+                imageSize: image.size,
+                selectedAnnotationModule: selectedAnnotationModule
+            )
+
+            let toolHost = UIHostingController(rootView: toolOverlay)
+            toolHost.view.backgroundColor = .clear
+            embed(hostingController: toolHost)
         }
-        
-        let renderedAnnotationsView = RenderedAnnotationsView(
-            imageSize: image.size,
-            selectedVisibleAnnotations: self.selectedVisibleAnnotations
-        )
-        
-        let hostingController = UIHostingController(
-            rootView: renderedAnnotationsView
-        )
-        hostingController.view.backgroundColor = .clear
+    }
+    
+    private func embed(hostingController: UIHostingController<some View>) {
+        overlayView.addSubview(hostingController.view)
 
-        // Add the hosting controller’s view to the overlay
-        self.annotationOverlayView.addSubview(hostingController.view)
-
-        // Use Auto Layout so it covers the overlay
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            hostingController.view.leadingAnchor.constraint(equalTo: self.annotationOverlayView.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: self.annotationOverlayView.trailingAnchor),
-            hostingController.view.topAnchor.constraint(equalTo: self.annotationOverlayView.topAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: self.annotationOverlayView.bottomAnchor)
+            hostingController.view.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor),
+            hostingController.view.topAnchor.constraint(equalTo: overlayView.topAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor)
         ])
     }
-}
 }
 
 extension AnnotationCanvasView: UIGestureRecognizerDelegate {
@@ -269,6 +282,10 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
         showsVerticalScrollIndicator   = false
         decelerationRate       = .fast
         
+        //Enforce 2 finger scroll gestures.  Separate gesture concerns
+        self.panGestureRecognizer.minimumNumberOfTouches = 2
+        self.panGestureRecognizer.maximumNumberOfTouches = 2
+        
         // Add the canvasView as a subview.
         addSubview(canvasView)
     }
@@ -277,7 +294,7 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
     // MARK: - Layout
     // -----------------------------------------------------------------
     override func layoutSubviews() {
-        print("Layout Subviews Running")
+//        print("Layout Subviews Running")
         super.layoutSubviews()
         
         // If the canvas has a valid image, it will have a non-zero size.
@@ -285,7 +302,7 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
         guard canvasSize.width > 0 && canvasSize.height > 0 else { return }
         contentSize = canvasSize
         
-        print("Layout subviews: ContentSize:\(contentSize), Container Size: \(self.bounds.size)")
+//        print("Layout subviews: ContentSize:\(contentSize), Container Size: \(self.bounds.size)")
         
         // Compute the minScale that fits the entire canvasView in the visible bounds
         let containerSize = self.bounds.size
@@ -316,7 +333,7 @@ class ScrollableAnnotationCanvasView: UIScrollView, UIScrollViewDelegate {
     }
     
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        print("Zoom scale: \(scrollView.zoomScale) and offset: \(scrollView.contentOffset)")
+//        print("Zoom scale: \(scrollView.zoomScale) and offset: \(scrollView.contentOffset)")
         updateContentInset()
     }
     
@@ -359,8 +376,8 @@ struct ScrollableAnnotationCanvasRepresentable: UIViewRepresentable {
         uiView.canvasView.selectedVisibleAnnotations = selectedVisibleAnnotations
 
         if context.coordinator.lastRefreshToken != refreshToken {
-            uiView.canvasView.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
-            uiView.canvasView.renderModuleAnnotations()
+            uiView.canvasView.overlayView.subviews.forEach { $0.removeFromSuperview() }
+            uiView.canvasView.renderOverlays()
             context.coordinator.lastRefreshToken = refreshToken
         }
 
@@ -521,15 +538,20 @@ struct AnnotationModeView: View {
             }
             
             await frameState.runTapBehavior(location: normalizedTap, selectedVisibleAnnotations: viewModel.selectedVisibleAnnotations, selectedAnnotationModuleTitle: viewModel.selectedAnnotationModule?.title)
+            
         case .dragChanged:
+            print("AMV: drag changed")
             if let module = viewModel.selectedAnnotationModule {
                 module.handleDragChanged(at: normalizedTap)
             }
+            
         case .dragEnded:
+            print("AMV: drag ended")
             if let module = viewModel.selectedAnnotationModule {
                 module.handleDragEnded(at: normalizedTap)
             }
         }
+        
     }
 
     struct MultiSelectAnnotationTypes: View {
@@ -538,7 +560,7 @@ struct AnnotationModeView: View {
         
         @State private var isExpanded = false
         @State private var buttonFrame: CGRect = .zero
-
+  
         var body: some View {
             // Use a full-screen ZStack so the overlay isn't clipped.
             ZStack(alignment: .topLeading) {

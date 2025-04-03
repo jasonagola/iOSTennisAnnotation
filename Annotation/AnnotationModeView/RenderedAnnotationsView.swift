@@ -11,9 +11,12 @@ struct RenderedAnnotationsView: View {
     @EnvironmentObject var frameState: FrameState
     let imageSize: CGSize
     let selectedVisibleAnnotations: Set<String>
+    let selectedAnnotationModule: (any AnnotationModule)?
     
     var body: some View {
         ZStack {
+            
+            //General Annotation Rendering from SwiftUI/FrameState
             if selectedVisibleAnnotations.contains("Ball Detection") {
                 AnnotationRenderUtilities.renderBallDetectionAnnotations(
                     imageSize: imageSize,

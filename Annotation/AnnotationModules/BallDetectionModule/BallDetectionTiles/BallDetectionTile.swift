@@ -33,11 +33,13 @@ class BallDetectionTileViewModel: ObservableObject {
     func selectDetection(_ detection: BallDetection) async {
         await MainActor.run {
             frameState.selectedAnnotationUUID = detection.id
+            self.needsRefresh = UUID()
         }
     }
     
     /// Deletes the currently selected detection.
-    func deleteSelectedDetection() async {
+    func deleteSelectedDetection(_ detection: BallDetection) async {
+        print("Attempting to delete detection: \(detection)")
         let selectedID = frameState.selectedAnnotationUUID
         if let detection = frameState.ballDetections.first(where: { $0.id == selectedID }) {
             await frameState.deleteBallAnnotation(detection)
@@ -50,13 +52,13 @@ class BallDetectionTileViewModel: ObservableObject {
     
     /// Placeholder for an editing action.
     func editSelectedDetection() async {
+       
         let selectedID = frameState.selectedAnnotationUUID
         if let detection = frameState.ballDetections.first(where: { $0.id == selectedID }) {
             // Implement your editing logic here.
         } else  {
             
         }
-        //        print("DetectionTileViewModel: Edit detection \(detection.id)")
     }
     
 }
@@ -79,6 +81,7 @@ struct BallDetectionTile: View {
         VStack(alignment: .leading, spacing: 12) {
             content
         }
+//        id(viewModel.needsRefresh)
         .background(Color(UIColor.systemBackground))
         .cornerRadius(8)
     }
@@ -97,11 +100,11 @@ struct BallDetectionTile: View {
             ForEach(frameState.ballDetections, id: \.id) { detection in
                 BallDetectionItemView(
                     detection: detection,
-                    isSelected: frameState.selectedAnnotationUUID == detection.id,
                     onDelete: {
+                        //FIXME: handle detection passing vs frameState collection
                         Task {
                             await viewModel.selectDetection(detection)
-                            await viewModel.deleteSelectedDetection()
+                            await viewModel.deleteSelectedDetection(detection)
                         }
                     }
                 )
@@ -119,9 +122,12 @@ struct BallDetectionTile: View {
     /// A view for rendering a single BallDetection with a visual indicator if selected.
     struct BallDetectionItemView: View {
         let detection: BallDetection
-        let isSelected: Bool
         let onDelete: () -> Void
         @EnvironmentObject private var frameState: FrameState
+
+        private var isSelected: Bool {
+            frameState.selectedAnnotationUUID == detection.id
+        }
         
         var body: some View {
             VStack(alignment: .leading, spacing: 8) {
