@@ -30,6 +30,7 @@ final class Project {
     }
 }
 
+//MARK: Frame Model
 @Model
 final class Frame {
     @Attribute(.unique) var id: UUID = UUID()
@@ -101,6 +102,8 @@ final class AnnotationRecord {
     }
 }
 
+
+//MARK: BallDetection Model
 @Model
 final class BallDetection {
     @Attribute(.unique) var id: UUID = UUID()

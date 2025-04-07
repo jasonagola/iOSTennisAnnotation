@@ -85,7 +85,7 @@ class CourtDetectionModule: AnnotationModule, ObservableObject {
     }
     
     // MARK: - Rendering
-    func renderAnnotations(imageSize: CGSize) ->  AnyView {
+    func renderToolOverlay(imageSize: CGSize) ->  AnyView {
 ////        print("Court Detection Module rendering annotations...")
 //        let temporaryAnnotations: [CourtKeypointAnnotation] = AnnotationManager.shared.getTemporaryAnnotations(
 //            ofType: .courtDetection,

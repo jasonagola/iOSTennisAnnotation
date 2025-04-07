@@ -12,6 +12,7 @@ extension FrameState {
     }
 }
 
+
 //FIXME: Add Main Actor @MainActor to enforce all to main thread?
 class FrameState: ObservableObject {
     @Published var refreshToken: UUID = UUID()
@@ -223,6 +224,30 @@ class FrameState: ObservableObject {
 
         await triggerRefresh() // View-bound UUID update, if needed
     }
+    
+//    func getNeighboringFrameImages(count: Int) -> [CompositeFrameItem] {
+//        guard let currentIndex = frames.firstIndex(where: { $0.id == currentFrameUUID }) else { return [] }
+//
+//        var result: [CompositeFrameItem] = []
+//        for offset in -count...count {
+//            let index = currentIndex + offset
+//            guard index >= 0 && index < frames.count else { continue }
+//
+//            let frame = frames[index]
+//            let image = loadCurrentImage(for: frame) // use your existing image loader
+//            let detections = ballDetections.filter { $0.frameUUID == frame.id }
+//            let opacity: Double = offset == 0 ? 1.0 : 0.3
+//
+//            result.append(CompositeFrameItem(
+//                uuid: frame.id,
+//                image: image,
+//                detections: detections,
+//                opacity: opacity
+//            ))
+//        }
+//
+//        return result
+//    }
     
 
     func loadCourtDetections() async {

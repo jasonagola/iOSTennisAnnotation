@@ -139,7 +139,7 @@ class AnnotationCanvasView: UIView {
         // which can complicate coordinate mapping for annotations.
         imageView.contentMode = .topLeft
         imageView.frame = bounds
-        addSubview(imageView)
+//        addSubview(imageView)
         
         overlayView.backgroundColor = .clear
         overlayView.frame = bounds
@@ -192,6 +192,7 @@ class AnnotationCanvasView: UIView {
     
 
     func renderOverlays() {
+        print("Render Overlays being called again")
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -222,6 +223,8 @@ class AnnotationCanvasView: UIView {
             let toolHost = UIHostingController(rootView: toolOverlay)
             toolHost.view.backgroundColor = .clear
             embed(hostingController: toolHost)
+            
+            
         }
     }
     

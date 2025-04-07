@@ -307,27 +307,38 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     // MARK: - Annotation Rendering
     
     func renderToolOverlay(imageSize: CGSize) -> AnyView {
-        //CompositeOverlayView
-
-        print("current bounding box: \(String(describing: currentBoundingBox))")
-        return AnyView (
-            ZStack {
-                if let currentBox = currentBoundingBox {
-                    let rect = CGRect(
-                        x: currentBox.origin.x * imageSize.width,
-                        y: currentBox.origin.y * imageSize.height,
-                        width: currentBox.width * imageSize.width,
-                        height: currentBox.height * imageSize.height
-                    )
-
-                    Rectangle()
-                        .stroke(Color.green, style: StrokeStyle(lineWidth: 2, dash: [6]))
-                        .frame(width: rect.width, height: rect.height)
-                        .position(x: rect.midX, y: rect.midY)
+        switch activeTool?.name {
+        case "Manual Selection":
+            return AnyView (
+                ZStack {
+                    if let currentBox = currentBoundingBox {
+                        let rect = CGRect(
+                            x: currentBox.origin.x * imageSize.width,
+                            y: currentBox.origin.y * imageSize.height,
+                            width: currentBox.width * imageSize.width,
+                            height: currentBox.height * imageSize.height
+                        )
+                        
+                        Rectangle()
+                            .stroke(Color.green, style: StrokeStyle(lineWidth: 2, dash: [6]))
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                    }
                 }
-            }
-        )
+            )
+            
+        case "Relate Temporal Detections":
+            print("Rendering tool overlay")
+            return AnyView(CompositeOverlayView())
+            
+        default:
+            print("No tools to render")
+            return AnyView(EmptyView()) // <- Add this!
+        }
     }
+
+
+    
     
     // MARK: - Processing Entire Frame
     
