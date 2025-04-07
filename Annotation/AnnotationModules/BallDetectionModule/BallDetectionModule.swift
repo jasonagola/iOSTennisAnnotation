@@ -46,9 +46,9 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     internal var internalTools: [AnnotationModuleTool]
     @Published private var activeTool: AnnotationModuleTool?
     
-    // Debug & internal data
-//    @Published var showDebugModal: Bool = false
-//    private var rawDetections: [RawDetection] = []
+    //Manual Selection
+    private var dragStartPoint: CGPoint? = nil
+    @Published var currentBoundingBox: CGRect? = nil
     
     init(
         modelContext: ModelContext,
@@ -102,7 +102,11 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
                     }
                 },
                 isSelected: false,
-                detectionTiles: []
+                detectionTiles: [
+                    DetectionTile(title: "Ball Detections", content: {
+                        BallDetectionTile(frameState: self.frameState, modelContext: self.modelContext)
+                    })
+                ]
             ),
             AnnotationModuleTool(
                 name: "Process Entire Frame",
@@ -173,49 +177,153 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
         }
     }
     
+    //TODO: Enable Drawing Features for ball concurrency
     func handleDragChanged(at point: CGPoint) {
-        // Implement if needed.
+        print("Drag is changing: \(point)")
+        guard let tool = activeTool else  {
+            return
+        }
+        
+        guard let currentImage = frameState.currentImage else {
+            return
+        }
+        
+        let imagePoint = CGPoint(
+            x: point.x * currentImage.size.width,
+            y: point.y * currentImage.size.height
+        )
+        
+        switch tool.name {
+        case "Manual Selection":
+            handleManualSelectionDragChanged(point)
+        default:
+            print("Unsupported tool in handleDragChanged: \(tool.name)")
+        }
+
     }
     
     func handleDragEnded(at point: CGPoint) {
-        // Implement if needed.
+        print("DRAG ENDED: \(point)")
+        guard let tool = activeTool else  {
+            return
+        }
+        
+        guard let currentImage = frameState.currentImage else {
+            return
+        }
+        
+        let imagePoint = CGPoint(
+            x: point.x * currentImage.size.width,
+            y: point.y * currentImage.size.height
+        )
+        
+        switch tool.name {
+        case "Manual Selection":
+            handleManualSelectionDragEnded(point)
+        default:
+            print("Unsupported tool in handleDragChanged: \(tool.name)")
+        }
     }
     
+    
+    private func handleManualSelectionDragChanged(_ point: CGPoint) {
+        if dragStartPoint == nil {
+            dragStartPoint = point
+        }
+
+        guard let start = dragStartPoint else { return }
+
+        let origin = CGPoint(
+            x: min(start.x, point.x),
+            y: min(start.y, point.y)
+        )
+        let size = CGSize(
+            width: abs(point.x - start.x),
+            height: abs(point.y - start.y)
+        )
+        
+        print("Current Bounding box during drag: \(origin) \(size)")
+        currentBoundingBox = CGRect(origin: origin, size: size)
+        frameState.toolRenderOverlayRefreshToken = UUID()
+    }
+
+    private func handleManualSelectionDragEnded(_ point: CGPoint) {
+        guard let start = dragStartPoint else { return }
+
+        let origin = CGPoint(
+            x: min(start.x, point.x),
+            y: min(start.y, point.y)
+        )
+        let size = CGSize(
+            width: abs(point.x - start.x),
+            height: abs(point.y - start.y)
+        )
+
+        let finalBox = CGRect(origin: origin, size: size)
+        saveManualSelection(boundingBox: finalBox)
+        frameState.toolRenderOverlayRefreshToken = UUID()
+
+        dragStartPoint = nil
+        currentBoundingBox = nil
+    }
+    
+    func saveManualSelection(boundingBox: CGRect) {
+        guard let imageSize = frameState.currentImage?.size else { return }
+                
+        let normalizedBallBox = normalizeToImageSpace(boundingBox)
+        let computedCenter = CGPoint(x: boundingBox.midX, y: boundingBox.midY)
+        
+        let roiWidth: CGFloat = 640
+        let roiHeight: CGFloat = 640
+
+        let roiCenter = CGPoint(
+            x: computedCenter.x * imageSize.width,
+            y: computedCenter.y * imageSize.height
+        )
+
+        let roiOrigin = CGPoint(
+            x: max(0, roiCenter.x - roiWidth / 2),
+            y: max(0, roiCenter.y - roiHeight / 2)
+        )
+
+        let roiRect = CGRect(origin: roiOrigin, size: CGSize(width: roiWidth, height: roiHeight))
+        let normalizedROI = normalizeToImageSpace(roiRect)
+        
+        let ballDetection = BallDetection(
+            boundingBox: boundingBox,
+            computedCenter: computedCenter,
+            roiBoundingBox: roiRect,
+            visibility: .visible,
+            behavior: [.inFlight],
+            annotationRecord: nil,
+            frameUUID: frameState.currentFrameUUID
+        )
+        
+        Task { @MainActor in
+            frameState.addBallAnnotation(ballDetection)
+//  FIXME:              frameState.triggerRefresh()
+        }
+    }
     // MARK: - Annotation Rendering
     
-    func renderAnnotations(imageSize: CGSize) -> AnyView {
-        let capturedFrameUUID = frameState.currentFrameUUID
-//        print("BDM #11: renderAnnotations using current frameUUID: \(capturedFrameUUID)")
-        
-        let fetchDescriptor = FetchDescriptor<BallDetection>(
-            predicate: #Predicate { detection in
-                detection.frameUUID == capturedFrameUUID
-            }
-        )
-        let ballDetections: [BallDetection]
-        do {
-            ballDetections = try modelContext.fetch(fetchDescriptor)
-//            print("BDM #12: Render Ball Detections: \(ballDetections)")
-        } catch {
-            print("BDM #12: Error fetching ball detections: \(error)")
-            ballDetections = []
-        }
-        let annotationsInImageSpace = ballDetections.map { detection -> (CGRect, UUID) in
-            let boundingBox = CGRect(
-                x: detection.boundingBoxMinX * imageSize.width,
-                y: detection.boundingBoxMinY * imageSize.height,
-                width: detection.boundingBoxWidth * imageSize.width,
-                height: detection.boundingBoxHeight * imageSize.height
-            )
-            return (boundingBox, detection.id)
-        }
-        return AnyView(
+    func renderToolOverlay(imageSize: CGSize) -> AnyView {
+        //CompositeOverlayView
+
+        print("current bounding box: \(String(describing: currentBoundingBox))")
+        return AnyView (
             ZStack {
-                ForEach(annotationsInImageSpace, id: \.1) { (boundingBox, uuid) in
+                if let currentBox = currentBoundingBox {
+                    let rect = CGRect(
+                        x: currentBox.origin.x * imageSize.width,
+                        y: currentBox.origin.y * imageSize.height,
+                        width: currentBox.width * imageSize.width,
+                        height: currentBox.height * imageSize.height
+                    )
+
                     Rectangle()
-                        .stroke(Color.red, lineWidth: 4)
-                        .frame(width: boundingBox.width, height: boundingBox.height)
-                        .position(x: boundingBox.midX, y: boundingBox.midY)
+                        .stroke(Color.green, style: StrokeStyle(lineWidth: 2, dash: [6]))
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
                 }
             }
         )
@@ -294,7 +402,12 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     }
     
     // MARK: - Utility
-    private func normalizeToImageSpace(_ rect: CGRect, imageSize: CGSize) -> CGRect {
+    private func normalizeToImageSpace(_ rect: CGRect) -> CGRect {
+        guard let imageSize = frameState.currentImage?.size else {
+            print("BDM: normalizeToImageSpace failed — no current image in frameState.")
+            return .zero
+        }
+
         return CGRect(
             x: rect.origin.x / imageSize.width,
             y: rect.origin.y / imageSize.height,
@@ -304,7 +417,6 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     }
     
     // MARK: - Process Detection Results
-    
     private func processDetectionResults(_ observations: [VNRecognizedObjectObservation],
                                          roi: CGRect,
                                          originalImageSize: CGSize,
@@ -325,8 +437,8 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
                 width: ballBoundingBoxInROI.width,
                 height: ballBoundingBoxInROI.height
             )
-            let normalizedBallBox = normalizeToImageSpace(ballBoundingBoxInImage, imageSize: originalImageSize)
-            let normalizedROI = normalizeToImageSpace(roi, imageSize: originalImageSize)
+            let normalizedBallBox = normalizeToImageSpace(ballBoundingBoxInImage)
+            let normalizedROI = normalizeToImageSpace(roi)
             
             let ballDetection = BallDetection(
                 boundingBox: normalizedBallBox,

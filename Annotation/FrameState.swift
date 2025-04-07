@@ -12,8 +12,10 @@ extension FrameState {
     }
 }
 
+//FIXME: Add Main Actor @MainActor to enforce all to main thread?
 class FrameState: ObservableObject {
     @Published var refreshToken: UUID = UUID()
+    @Published var toolRenderOverlayRefreshToken: UUID = UUID()
     
     //Frame Annotations
     @Published public var ballDetections: [BallDetection] = []
