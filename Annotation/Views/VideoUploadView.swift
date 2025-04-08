@@ -65,7 +65,7 @@ struct VideoUploadView: View {
     // Enqueue confirmation and navigation to queue view.
     @State private var showEnqueueConfirmation = false
     @State private var navigateToProcessingQueue = false
-
+    
     var body: some View {
         NavigationStack {
             VStack {
@@ -92,34 +92,34 @@ struct VideoUploadView: View {
                 PhotosPicker("Select Video from Photo Library",
                              selection: $selectedPhotoItem,
                              matching: .videos)
-                    .padding(.top, 16)
-                    .onChange(of: selectedPhotoItem) { newItem in
-                        Task {
-                            guard let newItem else { return }
-                            do {
-                                // Load the video data
-                                if let data = try await newItem.loadTransferable(type: Data.self) {
-                                    // Write it to a temporary file
-                                    let tmpURL = FileManager.default.temporaryDirectory
-                                        .appendingPathComponent(UUID().uuidString)
-                                        .appendingPathExtension("mov")
-                                    try data.write(to: tmpURL, options: .atomic)
-                                    
-                                    // Update state
-                                    videoURL = tmpURL
-                                    avAsset = AVAsset(url: tmpURL)
-                                    
-                                    // Create the player
-                                    player = AVPlayer(url: tmpURL)
-                                    
-                                    // Load metadata
-                                    await loadMetadata()
-                                }
-                            } catch {
-                                print("Error loading video from PhotosPicker: \(error)")
+                .padding(.top, 16)
+                .onChange(of: selectedPhotoItem) { newItem in
+                    Task {
+                        guard let newItem else { return }
+                        do {
+                            // Load the video data
+                            if let data = try await newItem.loadTransferable(type: Data.self) {
+                                // Write it to a temporary file
+                                let tmpURL = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent(UUID().uuidString)
+                                    .appendingPathExtension("mov")
+                                try data.write(to: tmpURL, options: .atomic)
+                                
+                                // Update state
+                                videoURL = tmpURL
+                                avAsset = AVAsset(url: tmpURL)
+                                
+                                // Create the player
+                                player = AVPlayer(url: tmpURL)
+                                
+                                // Load metadata
+                                await loadMetadata()
                             }
+                        } catch {
+                            print("Error loading video from PhotosPicker: \(error)")
                         }
                     }
+                }
                 
                 // MARK: - Documents button (sheet)
                 Button("Select Video from Documents") {
@@ -279,7 +279,7 @@ struct VideoUploadView: View {
                                        asset: asset,
                                        projectName: projectName,
                                        frameSkip: skipCount
-                                        )
+        )
         queueManager.add(task: task)
         
         parseMessage = "Task enqueued!"
@@ -357,6 +357,49 @@ struct VideoUploadView: View {
         }
     }
     
+    final class FrameBuffer {
+        private var buffer: [Int: UIImage] = [:]
+        private var accessOrder: [Int] = []
+        private let maxSize: Int
+
+        init(maxSize: Int = 10) {
+            self.maxSize = maxSize
+        }
+
+        // Adds an image to the buffer under a unique index.
+        // Note: Auto-deletion is removed; you'll need to manually call remove(_:) as appropriate.
+        func set(_ index: Int, image: UIImage) {
+            buffer[index] = image
+            accessOrder.append(index)
+        }
+
+        // Retrieves an image from the buffer for the specified index.
+        func get(_ index: Int) -> UIImage? {
+            return buffer[index]
+        }
+
+        // Checks if the buffer contains an image for the given index.
+        func contains(_ index: Int) -> Bool {
+            return buffer[index] != nil
+        }
+
+        // Removes the image for the specified index, ensuring that the access order is updated.
+        func remove(_ index: Int) {
+            buffer.removeValue(forKey: index)
+            accessOrder.removeAll { $0 == index }
+        }
+
+        // Clears the entire buffer.
+        func clear() {
+            buffer.removeAll()
+            accessOrder.removeAll()
+        }
+        
+        // Provides the current count of stored frames.
+        var currentCount: Int {
+            return buffer.count
+        }
+    }
     // MARK: - VideoProcessingTask
     final class VideoProcessingTask: ProcessingTask {
         let id = UUID()
@@ -384,16 +427,22 @@ struct VideoUploadView: View {
         // Internal properties
         private var isCancelled = false
         
+        // Our frame buffer (shared in-memory cache) with a max capacity.
+        private let frameBuffer = FrameBuffer(maxSize: 10)
+        
+        // A dedicated queue for disk writing tasks.
+        private let diskWriteQueue = DispatchQueue(label: "com.myapp.diskWriteQueue", qos: .background)
+        
         init(modelContext: ModelContext, title: String, asset: AVAsset, projectName: String, frameSkip: Int) {
             self.modelContext = modelContext
             self.title = title
             self.avAsset = asset
             self.projectName = projectName
             self.frameSkip = max(frameSkip, 1)
-            
         }
         
         func start() async {
+            // Ensure we are in a valid starting state.
             guard state == .pending || state == .paused else { return }
             
             await MainActor.run {
@@ -402,10 +451,12 @@ struct VideoUploadView: View {
             }
             
             do {
+                // Load video metadata.
                 let videoTracks = try await avAsset.loadTracks(withMediaType: .video)
                 let frameRate = try await videoTracks.first?.load(.nominalFrameRate) ?? 30.0
                 let durationSeconds = (try await avAsset.load(.duration)).seconds
                 let totalFrameCount = Int(Double(frameRate) * durationSeconds)
+                
                 guard totalFrameCount > 0 else {
                     await MainActor.run {
                         self.state = .failed
@@ -414,17 +465,15 @@ struct VideoUploadView: View {
                     return
                 }
                 
+                // Add/Update Project in Data Model.
                 let modelContext = self.modelContext
-                
-                let targetName = projectName  // Capture the value in a local constant
+                let targetName = projectName // local copy for consistency
                 let projectDir = try createProjectDirectory(named: projectName)
-                print("Video Upload View, projectDir: \(projectDir)")
                 
                 let fetchDescriptor = FetchDescriptor<Project>(
                     predicate: #Predicate { $0.name == targetName }
                 )
                 let existingProjects = try modelContext.fetch(fetchDescriptor)
-                
                 let project: Project
                 if let existingProject = existingProjects.first {
                     project = existingProject
@@ -434,99 +483,111 @@ struct VideoUploadView: View {
                     try modelContext.save()
                 }
                 
-                
+                // Create the thumbnails directory.
                 let thumbnailsDir = projectDir.appendingPathComponent("thumbnails", isDirectory: true)
                 try FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
                 
+                // Initialize the image generator.
                 let imageGenerator = AVAssetImageGenerator(asset: avAsset)
                 imageGenerator.appliesPreferredTrackTransform = true
                 imageGenerator.requestedTimeToleranceBefore = .zero
                 imageGenerator.requestedTimeToleranceAfter = .zero
                 
+                // Collect the frame times.
                 var times = [CMTime]()
                 for frameIndex in stride(from: 0, to: totalFrameCount, by: frameSkip) {
-                    let time = CMTime(value: CMTimeValue(frameIndex),
-                                      timescale: CMTimeScale(frameRate))
+                    let time = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(frameRate))
                     times.append(time)
                 }
                 
                 var annotations: [String: Any] = [:]
                 let total = times.count
-                var lastExtractedFrame: UIImage? = nil
                 
+                // Main processing loop; running on a background Task.
                 try await Task(priority: .background) { [weak self] in
                     print("Starting Background Video Processing Tasks....")
                     guard let self = self else { return }
-                    // Inside your background Task loop:
+                    
                     for (i, time) in times.enumerated() {
-                        // Handle pause and cancellation...
-                        // Update progress synchronously via MainActor if needed:
+                        
+                        // Check for cancellation.
+                        if self.isCancelled { break }
+                        
+                        // Rate limit: if the buffer count is at or above max, pause processing.
+                        while self.frameBuffer.currentCount >= 10 {
+                            try await Task.sleep(nanoseconds: 10_000_000) // 10 milliseconds
+                        }
+                        // Update progress on the main thread.
                         Task { @MainActor in
                             self.progress = Double(i) / Double(total)
                             self.statusMessage = "Processing frame \(i + 1) of \(total)"
                         }
                         
-                        // Extract the frame synchronously in an autoreleasepool.
-                        let extractedFrame: Frame? = autoreleasepool {
+                        // Extract frame using an autoreleasepool.
+                        let extractedFrame: Frame? = autoreleasepool { () -> Frame? in
                             do {
                                 // 1. Extract the CGImage at the given time.
                                 let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
                                 let uiImage = UIImage(cgImage: cgImage)
-                                
-                                // 2. Skip duplicate frames.
-                                if let lastFrame = lastExtractedFrame,
-                                   uiImage.pngData() == lastFrame.pngData() {
+
+                                // 2. Check for duplicate using the frameBuffer entry (e.g., previous frame).
+                                if let previousImage = self.frameBuffer.get(i - 1),
+                                   uiImage.pngData() == previousImage.pngData() {
+                                    print("Skipping duplicate frame \(i) based on buffer comparison")
                                     return nil
                                 }
-                                lastExtractedFrame = uiImage
                                 
-                                // 3. Save the full-size image.
+                                // 3. Save the newly extracted frame in the frameBuffer.
+                                self.frameBuffer.set(i, image: uiImage)
+                                
+                                // 4. Compute file names and URLs *synchronously*.
                                 let frameName = String(format: "frame_%05d.jpg", i + 1)
                                 let fileURL = projectDir.appendingPathComponent(frameName)
-                                if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
-                                    do {
-                                        try jpegData.write(to: fileURL, options: .atomic)
-                                        print("Saved full image to \(fileURL.path)")
-                                    } catch {
-                                        print("Error writing full image: \(error)")
-                                    }
-                                    let exists = FileManager.default.fileExists(atPath: fileURL.path)
-                                    print("File exists at \(fileURL.path): \(exists)")
-                                } else {
-                                    print("Failed to create JPEG data for full image.")
-                                }
-                                
-                                // 4. Save the thumbnail.
                                 let thumbnailName = String(format: "frame_%05d_thumbnail.jpg", i + 1)
                                 let thumbnailURL = thumbnailsDir.appendingPathComponent(thumbnailName)
-                                if let thumbnail = uiImage.thumbnail(toMaxDimension: 128) {
-                                    print("Thumbnail generated successfully.")
-                                    if let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) {
+                                
+                                // 5. Dispatch disk writes asynchronously.
+                                self.diskWriteQueue.async {
+                                    // Full-size image write.
+                                    if let jpegData = uiImage.jpegData(compressionQuality: 0.8) {
+                                        do {
+                                            try jpegData.write(to: fileURL, options: .atomic)
+                                            print("Saved full image to \(fileURL.path)")
+                                        } catch {
+                                            print("Error writing full image: \(error)")
+                                        }
+                                    } else {
+                                        print("Failed to create JPEG data for full image.")
+                                    }
+                                    
+                                    // Thumbnail write.
+                                    if let thumbnail = uiImage.thumbnail(toMaxDimension: 128),
+                                       let thumbnailData = thumbnail.jpegData(compressionQuality: 0.8) {
                                         do {
                                             try thumbnailData.write(to: thumbnailURL, options: .atomic)
                                             print("Saved thumbnail to \(thumbnailURL.path)")
                                         } catch {
                                             print("Error writing thumbnail: \(error)")
                                         }
-                                        let thumbExists = FileManager.default.fileExists(atPath: thumbnailURL.path)
-                                        print("Thumbnail exists at \(thumbnailURL.path): \(thumbExists)")
                                     } else {
-                                        print("Failed to create JPEG data for thumbnail.")
+                                        print("Thumbnail generation failed for frame \(i)")
                                     }
-                                } else {
-                                    print("Thumbnail generation failed.")
+                                    
+                                    // Once disk writes are complete, remove the frame from the buffer.
+                                    DispatchQueue.main.async {
+                                        self.frameBuffer.remove(i)
+                                    }
                                 }
                                 
-                                // 5. Convert absolute paths to relative paths.
+                                // 6. Compute relative file paths (this can be done immediately since fileURL and thumbnailURL are known).
                                 guard let docsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                                     print("Could not access the Documents directory.")
                                     return nil
                                 }
-                                // Remove the Documents directory prefix (with trailing slash) from the saved paths.
                                 let relativeImagePath = fileURL.path.replacingOccurrences(of: docsURL.path + "/", with: "")
                                 let relativeThumbnailPath = thumbnailURL.path.replacingOccurrences(of: docsURL.path + "/", with: "")
                                 
-                                // 6. Create and return the Frame object using the relative file paths.
+                                // 7. Create and return the Frame object.
                                 return Frame(frameName: frameName,
                                              project: project,
                                              imagePath: relativeImagePath,
@@ -537,20 +598,19 @@ struct VideoUploadView: View {
                             }
                         }
                         
-                        // Update modelContext asynchronously on the main actor if a frame was extracted
+                        // If the frame was extracted and written, update modelContext (on the main actor).
                         if let frame = extractedFrame {
                             try await MainActor.run {
                                 modelContext.insert(frame)
                                 try modelContext.save()
                             }
-                            
-                            // Update annotations (this is synchronous since it’s just a dictionary update)
+                            // Update annotations.
                             annotations[frame.frameName] = [
                                 "annotation": "placeholder",
                                 "timestamp": CMTimeGetSeconds(time)
                             ]
                         }
-                    }
+                    } // end for loop
                     
                     Task { @MainActor in
                         self.progress = 1.0
@@ -558,9 +618,8 @@ struct VideoUploadView: View {
                 }.value
                 
                 await MainActor.run {
-                    // FIXME: Enable Background Processing or Pausing.  Sleep Causes preamature crash
+                    // FIXME: Enable Background Processing or Pausing.  (Sleep may cause premature crash.)
                     self.state = self.isCancelled ? .failed : .completed
-                    
                     let currentDate = Date()
                     let formatter = DateFormatter()
                     formatter.dateFormat = "HH:mm"
@@ -577,6 +636,7 @@ struct VideoUploadView: View {
                 print("Error in VideoProcessingTask: \(error)")
             }
         }
+
         
         func pause() {
             if state == .running {
