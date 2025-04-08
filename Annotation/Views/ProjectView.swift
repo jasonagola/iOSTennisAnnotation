@@ -290,7 +290,8 @@ struct BatchProcessingSelectionView: View {
     
     // A dictionary of task names and whether they're selected.
     @State private var selectedTasks: [String: Bool] = [
-        "Ball Detection": false
+        "Ball Detection": false,
+        "Build Composite Video": false
         // Add additional tasks as needed.
     ]
     
@@ -334,7 +335,10 @@ struct BatchProcessingSelectionView: View {
             let task = BallDetectionProcessingBatchTask(projectUUID: projectUUID, modelContext: modelContext)
             queueManager.add(task: task)
         }
-//         Add similar conditions for additional tasks here.
+        if selectedTasks["Build Composite Video"] ?? false {
+            let task = CompositeVideoRenderingTask(projectUUID: projectUUID, modelContext: modelContext)
+            queueManager.add(task: task)
+        }
     }
 }
 
@@ -368,6 +372,7 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
     }
 
     // MARK: - ProcessingTask Methods
+    //FIXME: Rapidly reassigning can cause data leaks 
     func start() async {
         await MainActor.run {
             self.state = .running
