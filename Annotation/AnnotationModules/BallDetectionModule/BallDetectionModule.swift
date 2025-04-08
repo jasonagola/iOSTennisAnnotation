@@ -31,6 +31,7 @@ struct BallDetectionData: Codable {
 // MARK: - Ball Detection Module
 
 final class BallDetectionModule: AnnotationModule, ObservableObject {
+    @EnvironmentObject private var queueManager: ProcessingQueueManager
     private var frameState: FrameState
 
     var title: String { "Ball Detection" }
@@ -329,7 +330,10 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
             
         case "Relate Temporal Detections":
             print("Rendering tool overlay")
-            return AnyView(CompositeOverlayView())
+            
+            return AnyView(CompositeOverlayView(frameState: frameState))
+//            let videoUrl = frameState.projectDir!.appendingPathComponent("compositeOverlay.mov")
+//            return AnyView(VideoScrubberView(videoURL: videoUrl))
             
         default:
             print("No tools to render")
