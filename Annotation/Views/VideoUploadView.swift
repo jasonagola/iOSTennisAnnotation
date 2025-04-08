@@ -417,6 +417,9 @@ struct VideoUploadView: View {
                 let modelContext = self.modelContext
                 
                 let targetName = projectName  // Capture the value in a local constant
+                let projectDir = try createProjectDirectory(named: projectName)
+                print("Video Upload View, projectDir: \(projectDir)")
+                
                 let fetchDescriptor = FetchDescriptor<Project>(
                     predicate: #Predicate { $0.name == targetName }
                 )
@@ -426,12 +429,12 @@ struct VideoUploadView: View {
                 if let existingProject = existingProjects.first {
                     project = existingProject
                 } else {
-                    project = Project(name: projectName)
+                    project = Project(name: projectName, projectDir: projectDir)
                     modelContext.insert(project)
                     try modelContext.save()
                 }
                 
-                let projectDir = try createProjectDirectory(named: projectName)
+                
                 let thumbnailsDir = projectDir.appendingPathComponent("thumbnails", isDirectory: true)
                 try FileManager.default.createDirectory(at: thumbnailsDir, withIntermediateDirectories: true)
                 

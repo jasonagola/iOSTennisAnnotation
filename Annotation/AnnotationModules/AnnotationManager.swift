@@ -20,13 +20,15 @@ enum AnnotationType: String, Codable {
 final class Project {
     @Attribute(.unique) var id: UUID = UUID()
     var name: String
+    var projectDir: URL?
     var createdAt: Date = Date()
 
     // Relationship to frames
     @Relationship(deleteRule: .cascade) var frames: [Frame] = []
 
-    init(name: String) {
+    init(name: String, projectDir: URL? = nil) {
         self.name = name
+        self.projectDir = projectDir
     }
 }
 

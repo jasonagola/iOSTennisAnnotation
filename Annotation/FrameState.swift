@@ -23,11 +23,13 @@ class FrameState: ObservableObject {
     @Published public var courtDetections: [CourtDetection] = []
     //    public var playerAnnotations = []
     
+    @Published public var compositeFrames: [CompositeFrameItem] = []
     @Published public var selectedAnnotationUUID = UUID()
     @Published var annotationsAtTapLocation: [UUID] = []
     @Published var previousAnnotationsAtTapLocation: [UUID] = []
     
     private var projectUUID: UUID?
+    @Published var projectDir:URL? = nil
     @Published var currentFrameUUID: UUID? {
         didSet {
             print("FrameState: Updated currentFrameUUID to \(String(describing: currentFrameUUID))")
@@ -68,6 +70,7 @@ class FrameState: ObservableObject {
         
         await loadFrames()
         loadCurrentImage()
+        await loadProjectInfo()
     }
     
     var safeContext: ModelContext {
@@ -103,6 +106,31 @@ class FrameState: ObservableObject {
             self.refreshToken = UUID()
         }
     }
+    
+    func loadProjectInfo() async {
+        guard let modelContext = modelContext, let projectUUID = projectUUID else {
+            return
+        }
+        
+        let fetchDescriptor = FetchDescriptor<Project>(
+            predicate: #Predicate { $0.id == projectUUID }
+        )
+        
+        do {
+            let projects = try modelContext.fetch(fetchDescriptor)
+            guard let project = projects.first else {
+                print("No project found for id \(projectUUID)")
+                return
+            }
+            print("Project Info Loaded Successfully \(project.projectDir?.absoluteString ?? "nil")")
+            await MainActor.run {
+                self.projectDir = project.projectDir
+            }
+        } catch {
+            print("FrameState unable to load project info due to error: \(error)")
+        }
+    }
+    
     
     func loadFrames() async {
         guard let modelContext, let projectUUID else {
