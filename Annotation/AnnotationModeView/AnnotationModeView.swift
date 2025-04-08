@@ -108,7 +108,7 @@ class AnnotationCanvasView: UIView {
         print("AnnotationCanvasView HandleTap Gesture with location: \(location)")
         // Instead of sending upward, call the onGesture callback if set.
         onGesture?(location, .tap(location))
-        renderOverlays()
+//        renderOverlays()
     }
     
     // -----------------------------------------------------------------
@@ -117,17 +117,14 @@ class AnnotationCanvasView: UIView {
     init() {
         super.init(frame: .zero)
         setupViews()
-//        subscribeToAnnotationManager()
     }
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupViews()
-//        subscribeToAnnotationManager()
     }
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         setupViews()
-//        subscribeToAnnotationManager()
     }
     
     private func setupViews() {
@@ -190,47 +187,56 @@ class AnnotationCanvasView: UIView {
         }
     }
     
+    private var annotationHost: UIHostingController<RenderedAnnotationsView>?
+    private var toolHost: UIHostingController<ToolRenderOverlayView>?
 
     func renderOverlays() {
-        print("Render Overlays being called again")
+        print("Render Overlays being called")
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-    //        // Remove old views
-    //        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
+            guard let self = self, let image = self.image else { return }
             
-            guard let image = self.image else {
-                print("No image loaded in renderModuleAnnotations")
-                return
+            // Update existing hosting controllers instead of creating new ones:
+            if let host = self.annotationHost {
+                let newRoot = RenderedAnnotationsView(
+                    imageSize: image.size,
+                    selectedVisibleAnnotations: self.selectedVisibleAnnotations,
+                    selectedAnnotationModule: self.selectedAnnotationModule
+                )
+                host.rootView = newRoot
+            } else {
+                let renderedAnnotationsView = RenderedAnnotationsView(
+                    imageSize: image.size,
+                    selectedVisibleAnnotations: self.selectedVisibleAnnotations,
+                    selectedAnnotationModule: self.selectedAnnotationModule
+                )
+                let host = UIHostingController(rootView: renderedAnnotationsView)
+                host.view.backgroundColor = .clear
+                self.embed(hostingController: host)
+                self.annotationHost = host
             }
-            
-            let renderedAnnotationsView = RenderedAnnotationsView(
-                imageSize: image.size,
-                selectedVisibleAnnotations: self.selectedVisibleAnnotations,
-                selectedAnnotationModule: selectedAnnotationModule
-            )
-            
-            let annotationHost = UIHostingController(rootView: renderedAnnotationsView)
-            annotationHost.view.backgroundColor = .clear
-            embed(hostingController: annotationHost)
 
-            // 🧩 Tool Overlay (e.g., live drawing)
-            let toolOverlay = ToolRenderOverlayView(
-                imageSize: image.size,
-                selectedAnnotationModule: selectedAnnotationModule
-            )
-
-            let toolHost = UIHostingController(rootView: toolOverlay)
-            toolHost.view.backgroundColor = .clear
-            embed(hostingController: toolHost)
-            
-            
+            if let host = self.toolHost {
+                let newRoot = ToolRenderOverlayView(
+                    imageSize: image.size,
+                    selectedAnnotationModule: self.selectedAnnotationModule
+                )
+                host.rootView = newRoot
+            } else {
+                let toolOverlay = ToolRenderOverlayView(
+                    imageSize: image.size,
+                    selectedAnnotationModule: self.selectedAnnotationModule
+                )
+                let host = UIHostingController(rootView: toolOverlay)
+                host.view.backgroundColor = .clear
+                self.embed(hostingController: host)
+                self.toolHost = host
+            }
         }
     }
     
     private func embed(hostingController: UIHostingController<some View>) {
+        // Add hostingController.view as a subview and pin to overlayView bounds.
         overlayView.addSubview(hostingController.view)
-
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             hostingController.view.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor),
@@ -239,6 +245,54 @@ class AnnotationCanvasView: UIView {
             hostingController.view.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor)
         ])
     }
+//    func renderOverlays() {
+//        print("Render Overlays being called again")
+//        DispatchQueue.main.async { [weak self] in
+//            guard let self = self else { return }
+//
+//    //        // Remove old views
+//    //        self.annotationOverlayView.subviews.forEach { $0.removeFromSuperview() }
+//            
+//            guard let image = self.image else {
+//                print("No image loaded in renderModuleAnnotations")
+//                return
+//            }
+//            
+//            let renderedAnnotationsView = RenderedAnnotationsView(
+//                imageSize: image.size,
+//                selectedVisibleAnnotations: self.selectedVisibleAnnotations,
+//                selectedAnnotationModule: selectedAnnotationModule
+//            )
+//            
+//            let annotationHost = UIHostingController(rootView: renderedAnnotationsView)
+//            annotationHost.view.backgroundColor = .clear
+//            embed(hostingController: annotationHost)
+//
+//            // 🧩 Tool Overlay (e.g., live drawing)
+//            let toolOverlay = ToolRenderOverlayView(
+//                imageSize: image.size,
+//                selectedAnnotationModule: selectedAnnotationModule
+//            )
+//
+//            let toolHost = UIHostingController(rootView: toolOverlay)
+//            toolHost.view.backgroundColor = .clear
+//            embed(hostingController: toolHost)
+//            
+//            
+//        }
+//    }
+//    
+//    private func embed(hostingController: UIHostingController<some View>) {
+//        overlayView.addSubview(hostingController.view)
+//
+//        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+//        NSLayoutConstraint.activate([
+//            hostingController.view.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor),
+//            hostingController.view.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor),
+//            hostingController.view.topAnchor.constraint(equalTo: overlayView.topAnchor),
+//            hostingController.view.bottomAnchor.constraint(equalTo: overlayView.bottomAnchor)
+//        ])
+//    }
 }
 
 extension AnnotationCanvasView: UIGestureRecognizerDelegate {
