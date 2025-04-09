@@ -29,6 +29,16 @@
 		6C9BE51A2D2F1ECD009361D1 /* AnnotationUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnnotationUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		6CD2D24E2DA5DA5E00E6982E /* Exceptions for "Annotation" folder in "Annotation" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6C9BE4FF2D2F1ECB009361D1 /* Annotation */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6C591A3B2D9C403F001A2717 /* CustomUIComponents */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -37,6 +47,9 @@
 		};
 		6C9BE5022D2F1ECB009361D1 /* Annotation */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6CD2D24E2DA5DA5E00E6982E /* Exceptions for "Annotation" folder in "Annotation" target */,
+			);
 			path = Annotation;
 			sourceTree = "<group>";
 		};
@@ -406,6 +419,8 @@
 				DEVELOPMENT_TEAM = T8W9V7B256;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Annotation/Info.plist;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -435,6 +450,8 @@
 				DEVELOPMENT_TEAM = T8W9V7B256;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Annotation/Info.plist;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
