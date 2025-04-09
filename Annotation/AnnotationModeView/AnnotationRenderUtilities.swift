@@ -32,6 +32,7 @@ struct AnnotationRenderUtilities {
                 .position(x: boundingBox.midX, y: boundingBox.midY)
         }
     }
+        
     
     
 //    static func renderCourtDetectionAnnotations(

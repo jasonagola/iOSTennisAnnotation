@@ -400,6 +400,7 @@ struct VideoUploadView: View {
             return buffer.count
         }
     }
+    
     // MARK: - VideoProcessingTask
     final class VideoProcessingTask: ProcessingTask {
         let id = UUID()
