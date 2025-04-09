@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 extension FrameState {
-    
+    //FIXME: Need to handle outside module processes and prevent circluar variable dependency
     struct InsertBallDetectionTask: FrameStateTask {
         var priority: Int = 0
         
@@ -64,11 +64,11 @@ extension FrameState {
     }
     
     // MARK: Add Ball Annotation
-    func addBallAnnotation(_ detection: BallDetection) {
-        guard let frameUUID = currentFrameUUID else {
-            print("⚠️ addBallAnnotation: No currentFrameUUID available")
-            return
-        }
+    func addBallAnnotation(_ detection: BallDetection, frameUUID: UUID) {
+//        guard let frameUUID = currentFrameUUID else {
+//            print("⚠️ addBallAnnotation: No currentFrameUUID available")
+//            return
+//        }
 
         // Check for similar detection already in annotations
         let isDuplicate = ballDetections.contains(where: { existing in

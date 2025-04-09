@@ -301,7 +301,7 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
         )
         
         Task { @MainActor in
-            frameState.addBallAnnotation(ballDetection)
+            frameState.addBallAnnotation(ballDetection, frameUUID: frameState.currentFrameUUID!)
 //  FIXME:              frameState.triggerRefresh()
         }
     }
@@ -334,7 +334,7 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
 //            return AnyView(CompositeOverlayView(frameState: frameState))
             let videoUrl = frameState.projectDir!.appendingPathComponent("compositeOverlay.mov")
             print("Video url: \(videoUrl)")
-            return AnyView(VideoScrubberView(videoURL: videoUrl))
+            return AnyView(VideoScrubberView(videoURL: videoUrl, frameState: frameState))
             
         default:
             print("No tools to render")
@@ -347,58 +347,67 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     
     // MARK: - Processing Entire Frame
     
-    func processEntireFrame() {
-        guard let currentImage = frameState.currentImage, let cgImage = currentImage.cgImage else {
-            print("BDM #13: No CGImage available from current image in frameState.")
+    func processEntireFrame(with externalImage: UIImage? = nil, frameUUID: UUID? = nil) {
+        // Use the external image if provided; otherwise, fall back to frameState.currentImage.
+        guard let currentImage = externalImage ?? frameState.currentImage,
+              let cgImage = currentImage.cgImage else {
+            print("BDM #13: No CGImage available from the provided image or frameState.")
             return
         }
+        
         let imageWidth = cgImage.width
         let imageHeight = cgImage.height
         let roiDimension: CGFloat = 640
         var roiCollection = [CGPoint]()
+        
+        // Build a grid of ROIs.
         for y in stride(from: roiDimension / 2, to: CGFloat(imageHeight), by: roiDimension) {
             for x in stride(from: roiDimension / 2, to: CGFloat(imageWidth), by: roiDimension) {
                 roiCollection.append(CGPoint(x: x, y: y))
             }
         }
+        
         print("BDM #14: Processing entire frame - total ROIs: \(roiCollection.count)")
+        
+        // When calling detectBall, pass along the external frameUUID.
         for centerPoint in roiCollection {
-            detectBall(at: centerPoint, in: currentImage)
+            detectBall(at: centerPoint, in: currentImage, using: frameUUID)
         }
     }
     
     // MARK: - Ball Detection
     
-    private func detectBall(at point: CGPoint, in image: UIImage) {
-        print("BDM #15: Running Detect Ball")
+    private func detectBall(at point: CGPoint, in image: UIImage, using frameUUID: UUID? = nil) {
+        print("BDM #15: Running detectBall")
         guard let model = model, let cgImage = image.cgImage else {
             print("BDM #16: CoreML model or CGImage not available.")
             return
         }
-
-        guard let capturedFrameUUID = frameState.currentFrameUUID else {
-            print("BDM #17a: No currentFrameUUID in frameState.")
+        
+        // Use the provided frameUUID if available; otherwise, fall back to frameState.currentFrameUUID.
+        let capturedFrameUUID = frameUUID ?? frameState.currentFrameUUID
+        guard let capturedFrameUUID = capturedFrameUUID else {
+            print("BDM #17a: No frameUUID available either from the external parameter or from frameState.")
             return
         }
-
-        print("BDM #17: Captured frameUUID from frameState in detectBall: \(capturedFrameUUID)")
-
+        
+        print("BDM #17: Captured frameUUID in detectBall: \(capturedFrameUUID)")
+        
         let roiDimension: CGFloat = 640
         let roiOriginX = max(0, min(CGFloat(cgImage.width) - roiDimension, point.x - roiDimension / 2))
         let roiOriginY = max(0, min(CGFloat(cgImage.height) - roiDimension, point.y - roiDimension / 2))
         let roiRect = CGRect(x: roiOriginX, y: roiOriginY, width: roiDimension, height: roiDimension)
-
+        
         guard let croppedCGImage = cgImage.cropping(to: roiRect) else {
             print("BDM #18: Failed to crop image to ROI: \(roiRect)")
             return
         }
-
+        
         let request = VNCoreMLRequest(model: model) { [weak self] request, error in
             if let error = error {
                 print("BDM #19: CoreML request error: \(error.localizedDescription)")
                 return
             }
-
             if let observations = request.results as? [VNRecognizedObjectObservation] {
                 self?.processDetectionResults(
                     observations,
@@ -408,7 +417,7 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
                 )
             }
         }
-
+        
         let handler = VNImageRequestHandler(cgImage: croppedCGImage, options: [:])
         do {
             try handler.perform([request])
@@ -468,7 +477,7 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
             
             print("BDM #22: Inserting detection with frameUUID: \(capturedFrameUUID)")
             Task { @MainActor in
-                frameState.addBallAnnotation(ballDetection)
+                frameState.addBallAnnotation(ballDetection, frameUUID: capturedFrameUUID)
 //  FIXME:              frameState.triggerRefresh()
             }
             
