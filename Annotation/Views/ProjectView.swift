@@ -344,6 +344,50 @@ struct BatchProcessingSelectionView: View {
     }
 }
 
+final class FrameBuffer {
+    private var buffer: [Int: UIImage] = [:]
+    private var accessOrder: [Int] = []
+    private let maxSize: Int
+
+    init(maxSize: Int = 10) {
+        self.maxSize = maxSize
+    }
+
+    // Adds an image to the buffer under a unique index.
+    // Note: Auto-deletion is removed; you'll need to manually call remove(_:) as appropriate.
+    func set(_ index: Int, image: UIImage) {
+        buffer[index] = image
+        accessOrder.append(index)
+    }
+
+    // Retrieves an image from the buffer for the specified index.
+    func get(_ index: Int) -> UIImage? {
+        return buffer[index]
+    }
+
+    // Checks if the buffer contains an image for the given index.
+    func contains(_ index: Int) -> Bool {
+        return buffer[index] != nil
+    }
+
+    // Removes the image for the specified index, ensuring that the access order is updated.
+    func remove(_ index: Int) {
+        buffer.removeValue(forKey: index)
+        accessOrder.removeAll { $0 == index }
+    }
+
+    // Clears the entire buffer.
+    func clear() {
+        buffer.removeAll()
+        accessOrder.removeAll()
+    }
+    
+    // Provides the current count of stored frames.
+    var currentCount: Int {
+        return buffer.count
+    }
+}
+
 final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
     let id = UUID()
     let title = "Ball Detection"
@@ -372,9 +416,31 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
     var statusMessagePublisher: AnyPublisher<String, Never> {
         $statusMessage.eraseToAnyPublisher()
     }
+    
+    private let frameBuffer = FrameBuffer(maxSize: 10)
+    
+    // Example helper methods:
+    func loadImage(for frame: Frame) -> UIImage? {
+        print("Calling Load Image...")
+        guard let path = frame.imagePath else {
+            print("No imagePath for frame \(frame.frameName)")
+            return nil
+        }
+        let resolvedPath = FilePathResolver.resolveFullPath(for: path)
+        guard FileManager.default.fileExists(atPath: resolvedPath) else {
+            print("File does not exist at path: \(resolvedPath)")
+            return nil
+        }
+        if let image = UIImage(contentsOfFile: resolvedPath) {
+            print("✅ loadImage: Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
+            return image
+        } else {
+            print("❌ loadImage: Failed to decode image from file at path: \(resolvedPath)")
+            return nil
+        }
+    }
 
     // MARK: - ProcessingTask Methods
-    //FIXME: Rapidly reassigning can cause data leaks 
     func start() async {
         await MainActor.run {
             self.state = .running
@@ -386,7 +452,11 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
         // First, initialize FrameState with available context.
         let frameState = FrameState(modelContext: modelContext, projectUUID: projectUUID, selectedFrameUUID: nil)
         // Load frames (if not already loaded via configure).
-        await frameState.loadFrames()
+//        await frameState.loadFrames()
+        
+        // Configure the FrameState with the first frame.
+        await frameState.configure(modelContext: modelContext, projectUUID: projectUUID)
+
 
         guard let firstFrame = frameState.frames.first else {
             await MainActor.run {
@@ -396,8 +466,6 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
             return
         }
 
-        // Configure the FrameState with the first frame.
-        await frameState.configure(modelContext: modelContext, projectUUID: projectUUID)
 
         let totalFrames = frameState.frames.count
 
@@ -406,18 +474,9 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
             if isCancelled { break }
 
             // Update the FrameState's current frame.
-            await MainActor.run {
-                frameState.currentFrameUUID = frame.id
-            }
-            // The didSet on currentFrameUUID will trigger loadCurrentImage() and data refresh.
-
-            // Wait for the image to be loaded.
-            while frameState.currentImage == nil && !isCancelled {
-                try? await Task.sleep(nanoseconds: 100_000_000_000) // 0.1 second delay.
-            }
-            if isCancelled { break }
-
-            guard let image = frameState.currentImage else { continue }
+            
+            //LoadImage
+            guard let image = loadImage(for: frame) else {return}
 
             // Instantiate a BallDetectionModule using your factory.
             guard let factory = AnnotationModules.availableModules["Ball Detection"] else {
@@ -432,7 +491,7 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
 
             if let ballModule = module as? BallDetectionModule {
                 // Process the entire frame (this should handle ROI internally).
-                ballModule.processEntireFrame()
+                await ballModule.processEntireFrame(with: image, frameUUID: frame.id)
             }
 
             // Update progress and status.
