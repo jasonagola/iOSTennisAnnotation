@@ -9,6 +9,8 @@ import AVFoundation
 import SwiftUI
 import Combine
 import SwiftData
+import MetalKit
+import CoreImage
 
 enum CompositeVideoError: Error {
     case cannotAddInput
@@ -30,25 +32,38 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
     private let modelContext: ModelContext
     private var isCancelled = false
     
-    // Hardcoded for now; in future, these may be retrieved from the project model.
+    // Hardcoded FPS value; this may be dynamic in the future.
     private let fps: Int32 = 60
+    
+    // MARK: - GPU / Core Image Context Setup
+    // Create a Metal-backed CIContext so that compositing runs on the GPU.
+    private lazy var metalDevice: MTLDevice? = {
+        let device = MTLCreateSystemDefaultDevice()
+        print("CIContext: Created metal device: \(String(describing: device))")
+        return device
+    }()
+    
+    private lazy var ciContext: CIContext? = {
+        guard let device = metalDevice else {
+            print("CIContext: ERROR - Failed to obtain metal device.")
+            return nil
+        }
+        let context = CIContext(mtlDevice: device, options: nil)
+        print("CIContext: Successfully created CIContext with metal device.")
+        return context
+    }()
     
     // MARK: - Initialization
     init(projectUUID: UUID, modelContext: ModelContext) {
         self.projectUUID = projectUUID
         self.modelContext = modelContext
+        print("CompositeVideoRenderingTask: Initialized for project \(projectUUID)")
     }
     
-    // Publishers for task state
-    var statePublisher: AnyPublisher<ProcessingTaskState, Never> {
-        $state.eraseToAnyPublisher()
-    }
-    var progressPublisher: AnyPublisher<Double, Never> {
-        $progress.eraseToAnyPublisher()
-    }
-    var statusMessagePublisher: AnyPublisher<String, Never> {
-        $statusMessage.eraseToAnyPublisher()
-    }
+    // MARK: - Task State Publishers
+    var statePublisher: AnyPublisher<ProcessingTaskState, Never> { $state.eraseToAnyPublisher() }
+    var progressPublisher: AnyPublisher<Double, Never> { $progress.eraseToAnyPublisher() }
+    var statusMessagePublisher: AnyPublisher<String, Never> { $statusMessage.eraseToAnyPublisher() }
     
     // MARK: - Task Start
     func start() async {
@@ -57,104 +72,164 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
             self.statusMessage = "Starting video rendering..."
             self.progress = 0.0
         }
+        print("CompositeVideoRenderingTask: Starting task.")
         
-        // Create and configure your FrameState.
+        // Use frameState only to obtain the list of frames and the project directory.
         let frameState = FrameState(modelContext: modelContext,
                                     projectUUID: projectUUID,
                                     selectedFrameUUID: nil)
-        // Load frames (assumes an async function exists).
+        print("CompositeVideoRenderingTask: Loading frames...")
         await frameState.loadFrames()
         
-        guard frameState.frames.count > 0 else {
+        let totalFrames = frameState.frames.count
+        print("CompositeVideoRenderingTask: Loaded \(totalFrames) frames.")
+        guard totalFrames > 0 else {
             await MainActor.run {
                 self.state = .failed
                 self.statusMessage = "No frames available for processing."
             }
+            print("CompositeVideoRenderingTask: ERROR - No frames available.")
             return
         }
         
-        // Configure FrameState (e.g. setting initial currentFrameUUID).
+        print("CompositeVideoRenderingTask: Configuring frame state for project \(projectUUID)")
         await frameState.configure(modelContext: modelContext, projectUUID: projectUUID)
         
-        let frames = frameState.frames
-        let totalFrames = frames.count
-        
-        // Use the resolution of the first frame as the video canvas size.
-        guard let firstImage = loadImage(for: frames.first!) else {
+        // Use the resolution of the first frame using loadImage.
+        guard let firstImage = loadImage(for: frameState.frames.first!) else {
             await MainActor.run {
                 self.state = .failed
                 self.statusMessage = "Failed to load first image."
             }
+            print("CompositeVideoRenderingTask: ERROR - Failed to load the first image.")
             return
         }
         let canvasSize = firstImage.size
+        print("CompositeVideoRenderingTask: Using canvas size: \(canvasSize)")
         
-        // Determine the output URL.
-        let projectDir = frameState.projectDir!
+        // Get the project directory from frameState (without modifying its state).
+        guard let projectDir = frameState.projectDir else {
+            await MainActor.run {
+                self.state = .failed
+                self.statusMessage = "Project directory not found."
+            }
+            print("CompositeVideoRenderingTask: ERROR - Project directory not available.")
+            return
+        }
         let outputURL = projectDir.appendingPathComponent("compositeOverlay.mov")
+        print("CompositeVideoRenderingTask: Output URL set to: \(outputURL)")
+        
+        // Do not attempt to create the output directory.
+        // Assert that the output directory exists.
+        let outputDirectory = outputURL.deletingLastPathComponent()
+        assert(FileManager.default.fileExists(atPath: outputDirectory.path),
+               "Output directory \(outputDirectory.path) does not exist! Please ensure that the project directory is created before running the composite task.")
+        print("CompositeVideoRenderingTask: Verified output directory exists.")
         
         do {
-            try await createCompositeVideo(for: frames, canvasSize: canvasSize, outputURL: outputURL)
+            try await createCompositeVideo(for: frameState.frames,
+                                             canvasSize: canvasSize,
+                                             outputURL: outputURL)
             await MainActor.run {
                 self.state = .completed
                 self.statusMessage = "Video rendering complete."
                 self.progress = 1.0
             }
-            print("Composite video stored at \(outputURL)")
+            print("CompositeVideoRenderingTask: Composite video stored at \(outputURL)")
         } catch {
             await MainActor.run {
                 self.state = .failed
                 self.statusMessage = "Video rendering failed: \(error)"
             }
+            print("CompositeVideoRenderingTask: ERROR - Video rendering failed: \(error)")
         }
     }
     
     func cancel() {
         isCancelled = true
-        Task { await MainActor.run { self.state = .failed; self.statusMessage = "Cancelled" } }
+        Task {
+            await MainActor.run {
+                self.state = .failed
+                self.statusMessage = "Cancelled"
+            }
+        }
+        print("CompositeVideoRenderingTask: Task cancelled.")
     }
     
     func pause() {
         state = .paused
         statusMessage = "Paused"
+        print("CompositeVideoRenderingTask: Task paused.")
     }
-
+    
     func resume() {
         if state == .paused {
             state = .running
             statusMessage = "Resumed"
+            print("CompositeVideoRenderingTask: Task resumed.")
         }
     }
     
     // MARK: - Video Creation with Sliding Window Compositing
-    
-    /// Create a composite video from the base frames.
-    /// - Parameters:
-    ///   - frames: The array of Frame objects (assumed to have imagePath and id).
-    ///   - canvasSize: The desired resolution (matching the first image's size).
-    ///   - outputURL: The file URL where the video will be written.
-    ///   - fps: Frames per second (default 60).
     func createCompositeVideo(for frames: [Frame],
                               canvasSize: CGSize,
                               outputURL: URL,
                               fps: Int32 = 60) async throws {
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        print("CompositeVideoRenderingTask: Starting video creation...")
         
+        // Remove any existing file at the output URL.
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            do {
+                try FileManager.default.removeItem(at: outputURL)
+                print("CompositeVideoRenderingTask: Removed existing file at \(outputURL.path)")
+            } catch {
+                print("CompositeVideoRenderingTask: Failed to remove existing file at \(outputURL.path): \(error)")
+            }
+        }
+        
+        // ───────── Video settings ─────────
+        let useHEVC = AVAssetExportSession.allExportPresets()
+            .contains(AVAssetExportPresetHEVCHighestQuality)
+
+        let codec: AVVideoCodecType
+        let compression: [String: Any]
+
+        if useHEVC {
+            codec = .hevc
+            compression = [
+                AVVideoAverageBitRateKey: 12_000_000       // 12 Mbps for 4 K60
+            ]
+        } else {
+            codec = .h264
+            compression = [
+                AVVideoAverageBitRateKey: 20_000_000,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
+                //  ↑ replaces the unavailable High51 constant
+            ]
+        }
+
         let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: codec,
             AVVideoWidthKey: canvasSize.width,
-            AVVideoHeightKey: canvasSize.height
+            AVVideoHeightKey: canvasSize.height,
+            AVVideoCompressionPropertiesKey: compression
         ]
+        print("CompositeVideoRenderingTask: Video settings: \(videoSettings)")
+        
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mov)
         let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         writerInput.expectsMediaDataInRealTime = false
         
         guard writer.canAdd(writerInput) else {
+            print("CompositeVideoRenderingTask: ERROR - Cannot add writer input.")
             throw CompositeVideoError.cannotAddInput
         }
         writer.add(writerInput)
+        print("CompositeVideoRenderingTask: Writer input added.")
         
+        // Pixel buffer attributes for Metal-based rendering.
         let sourceBufferAttributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32ARGB),
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
             kCVPixelBufferWidthKey as String: canvasSize.width,
             kCVPixelBufferHeightKey as String: canvasSize.height
         ]
@@ -163,26 +238,44 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
         
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
+        print("CompositeVideoRenderingTask: Writer session started at time zero.")
         
         let frameDuration = CMTime(value: 1, timescale: fps)
+        print("CompositeVideoRenderingTask: Frame duration: \(frameDuration.seconds) seconds.")
         
-        // For each frame index, use a sliding window to composite a single output image.
+        // Process each frame.
         for i in 0..<frames.count {
-            if isCancelled { break }
+            if isCancelled {
+                print("CompositeVideoRenderingTask: Rendering cancelled at frame \(i).")
+                break
+            }
             
-            // The center frame for the composite
+            print("CompositeVideoRenderingTask: Processing frame \(i + 1) of \(frames.count)")
             let centerIndex = i
-            let compositeImage = compositeImageForFrame(centerIndex: centerIndex, frames: frames, canvasSize: canvasSize)
-            let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(i))
             
-            guard let pixelBuffer = createPixelBuffer(from: compositeImage, size: canvasSize) else {
+            guard let compositeCIImage = createCompositeCIImageForFrame(centerIndex: centerIndex,
+                                                                        frames: frames,
+                                                                        canvasSize: canvasSize) else {
+                print("CompositeVideoRenderingTask: ERROR - Failed to composite CIImage for frame \(i + 1)")
                 throw CompositeVideoError.pixelBufferCreationFailed
             }
             
+            guard let pixelBuffer = createPixelBuffer(width: Int(canvasSize.width),
+                                                      height: Int(canvasSize.height)) else {
+                print("CompositeVideoRenderingTask: ERROR - Failed to create pixel buffer for frame \(i + 1)")
+                throw CompositeVideoError.pixelBufferCreationFailed
+            }
+            print("CompositeVideoRenderingTask: Pixel buffer created for frame \(i + 1)")
+            
+            renderCIImage(compositeCIImage, to: pixelBuffer)
+            print("CompositeVideoRenderingTask: Rendered CIImage to pixel buffer for frame \(i + 1)")
+            
+            let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(i))
             while !writerInput.isReadyForMoreMediaData {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+            print("CompositeVideoRenderingTask: Appended frame \(i + 1) at time \(presentationTime.seconds) seconds.")
             
             await MainActor.run {
                 self.progress = Double(i + 1) / Double(frames.count)
@@ -191,113 +284,220 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
         }
         
         writerInput.markAsFinished()
-        writer.finishWriting {
-            print("Video writing finished at \(outputURL)")
+        print("CompositeVideoRenderingTask: Marked writer input as finished.")
+        
+        // Wait for the writer to finish (suspends this task).
+        await writer.finishWriting()
+        
+        // Check the final status.
+        guard writer.status == .completed else {
+            let error = writer.error ?? NSError(
+                domain: "CompositeVideoRenderingTask",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey:
+                            "Writer finished with status \(writer.status)"]
+            )
+            print("CompositeVideoRenderingTask: ❌ \(error.localizedDescription)")
+            throw error            // propagate to the caller
         }
+        
+        // Success – gather file info (optional but useful).
+        let attrs     = try? FileManager.default.attributesOfItem(atPath: outputURL.path)
+        let bytes     = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+        let readable  = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        let duration  = CMTimeMultiply(frameDuration, multiplier: Int32(frames.count))
+        let seconds   = CMTimeGetSeconds(duration)
+        
+        print(String(format:
+                        "CompositeVideoRenderingTask: ✅ Finished writing (%.2f s, %@).",
+                     seconds, readable))
     }
     
-    /// Composite a single image from a sliding window of frames.
-    /// This function applies a sliding window (using a fixed preload margin) to determine
-    /// which frames to composite, then sorts those images by how far their index is from the center.
-    /// The images are drawn with the specified opacity.
-    func compositeImageForFrame(centerIndex: Int, frames: [Frame], canvasSize: CGSize) -> UIImage {
-        // Define your preload margin (number of frames to include on each side).
-        let preloadMargin = 8
-        let start = max(centerIndex - preloadMargin, 0)
-        let end = min(centerIndex + preloadMargin, frames.count - 1)
-        var compositeItems: [CompositeFrameItem] = []
-        
-        // For each frame in the sliding window, load the image and compute the desired opacity.
-        for i in start...end {
-            let frame = frames[i]
-            guard let image = loadImage(for: frame) else { continue }
-            let opacity = opacityForIndex(index: i, centerIndex: centerIndex)
-            let item = CompositeFrameItem(index: i,
-                                          uuid: frame.id,
-                                          image: image,
-                                          detections: [], // Detections not used here.
-                                          opacity: opacity)
-            compositeItems.append(item)
+    // MARK: - GPU Compositing with Core Image
+    // MARK: - GPU Compositing with Core Image
+    func createCompositeCIImageForFrame(centerIndex: Int,
+                                        frames: [Frame],
+                                        canvasSize: CGSize) -> CIImage? {
+
+        // ── PARAMETERS ─────────────────────────────────────────────────────────
+        let rings               = 4               // centre + 4 rings
+        let targetPeak: CGFloat = 0.85            // desired brightness ceiling
+
+        // ── HELPERS ────────────────────────────────────────────────────────────
+        /// Centre = 1.0.  Ring 1 = 1/2^γ, Ring 2 = 1/3^γ, …
+        let gamma: CGFloat = 1    // try 1.2 … 2.0
+
+        func ringOpacity(for distance: Int) -> CGFloat {
+            return 1.0 / pow(CGFloat(distance + 1), gamma)
         }
-        
-        // Sort items so that items with higher distance from the center are drawn first.
-        let sortedItems = compositeItems.sorted { abs($0.index - centerIndex) > abs($1.index - centerIndex) }
-        
-        // Composite the images into one using Core Graphics.
-        let renderer = UIGraphicsImageRenderer(size: canvasSize)
-        let compositeImage = renderer.image { context in
-            for item in sortedItems {
-                let drawRect = CGRect(origin: .zero, size: canvasSize)
-                item.image.draw(in: drawRect, blendMode: .normal, alpha: item.opacity)
+
+        func loadCI(for idx: Int) -> CIImage? {
+            guard idx >= 0, idx < frames.count,
+                  let ui = loadImage(for: frames[idx]),
+                  let cg = ui.cgImage else { return nil }
+            return CIImage(cgImage: cg)
+                .cropped(to: CGRect(origin: .zero, size: canvasSize))
+        }
+
+        // ── 1.  BUILD ONE IMAGE PER RING ───────────────────────────────────────
+        var ringImages: [(distance: Int, image: CIImage)] = []
+
+        for d in 0...rings {
+            if d == 0 {
+                if let img = loadCI(for: centerIndex) {
+                    ringImages.append((distance: 0, image: img))
+                }
+            } else {
+                var ring: CIImage?
+                if let neg = loadCI(for: centerIndex - d) { ring = neg }
+                if let pos = loadCI(for: centerIndex + d) {
+                    ring = ring == nil
+                        ? pos
+                        : pos.applyingFilter("CIAdditionCompositing",
+                                             parameters: [kCIInputBackgroundImageKey: ring!])
+                }
+                if let r = ring { ringImages.append((distance: d, image: r)) }
             }
         }
-        return compositeImage
-    }
-    
-    /// Compute opacity using your provided function.
-    func opacityForIndex(index: Int, centerIndex: Int) -> Double {
-        let distance = abs(index - centerIndex)
-        switch distance {
-        case 0: return 0.5   // center frame
-        case 1: return 0.8
-        case 2: return 0.9
-        case 3: return 1.0
-        default: return 1.0
+
+        // ── 2.  LIGHT‑BUDGET SCALE  (so Σweights ≤ targetPeak) ────────────────
+        var totalWeight: CGFloat = 0
+        for (d, _) in ringImages {
+            let framesInRing = (d == 0) ? 1 : 2
+            totalWeight += ringOpacity(for: d) * CGFloat(framesInRing)
         }
+        let budgetScale = min(targetPeak / totalWeight, 1)
+        print(String(format: "budgetScale = %.3f  (totalWeight = %.3f)",
+                     budgetScale, totalWeight))
+
+        // ── 3.  STACK THE RINGS WITH SCALED OPACITY ───────────────────────────
+        var finalImage = CIImage(color: .black)
+            .cropped(to: CGRect(origin: .zero, size: canvasSize))
+
+        for (d, ring) in ringImages.sorted(by: { $0.distance < $1.distance }) {
+            let ringAlpha = ring.applyingFilter(
+                "CIOpacity",
+                parameters: ["inputOpacity": ringOpacity(for: d) * budgetScale]
+            )
+
+            finalImage = ringAlpha.applyingFilter("CIAdditionCompositing",
+                parameters: [kCIInputBackgroundImageKey: finalImage])
+        }
+
+        // ── 4.  PEAK‑BASED TONE‑MAP  (safety net) ─────────────────────────────
+        if let ctx = ciContext {
+            let maxImg = CIFilter(name: "CIAreaMaximum",
+                parameters: [kCIInputImageKey  : finalImage,
+                             kCIInputExtentKey : CIVector(cgRect: finalImage.extent)])!.outputImage!
+
+            var px = [Float](repeating: 0, count: 4)
+            ctx.render(maxImg,
+                       toBitmap: &px,
+                       rowBytes: 4 * MemoryLayout<Float>.size,
+                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                       format: .RGBAf,
+                       colorSpace: CGColorSpaceCreateDeviceRGB())
+
+            let peak = CGFloat(max(px[0], px[1], px[2]))
+            let scale = peak > 0 ? min(targetPeak / peak, 1) : 1
+            print(String(format: "peak %.2f  →  clampScale %.3f", peak, scale))
+
+            if scale < 1 {
+                let tone = CIFilter(name: "CIColorMatrix")!
+                tone.setValue(finalImage, forKey: kCIInputImageKey)
+                tone.setValue(CIVector(x: scale, y: 0,     z: 0,     w: 0), forKey: "inputRVector")
+                tone.setValue(CIVector(x: 0,     y: scale, z: 0,     w: 0), forKey: "inputGVector")
+                tone.setValue(CIVector(x: 0,     y: 0,     z: scale, w: 0), forKey: "inputBVector")
+                tone.setValue(CIVector(x: 0,     y: 0,     z: 0,     w: 1), forKey: "inputAVector")
+                if let toned = tone.outputImage { finalImage = toned }
+            }
+        }
+
+        return finalImage
     }
     
-    /// Convert a UIImage to a CVPixelBuffer.
-    func createPixelBuffer(from image: UIImage, size: CGSize) -> CVPixelBuffer? {
-        let options: [String: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey as String: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+    /// Create a CVPixelBuffer in the BGRA format.
+    private func createPixelBuffer(width: Int, height: Int) -> CVPixelBuffer? {
+        let attrs: [CFString: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+            kCVPixelBufferMetalCompatibilityKey: true,
+            kCVPixelBufferWidthKey: width,
+            kCVPixelBufferHeightKey: height,
+            kCVPixelBufferBytesPerRowAlignmentKey: width * 4,
+            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA
         ]
+        
         var pixelBuffer: CVPixelBuffer?
         let status = CVPixelBufferCreate(kCFAllocatorDefault,
-                                         Int(size.width),
-                                         Int(size.height),
-                                         kCVPixelFormatType_32ARGB,
-                                         options as CFDictionary,
+                                         width,
+                                         height,
+                                         kCVPixelFormatType_32BGRA,
+                                         attrs as CFDictionary,
                                          &pixelBuffer)
-        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
+        if status == kCVReturnSuccess, let buffer = pixelBuffer {
+            print("createPixelBuffer: Successfully created pixel buffer (\(width)x\(height))")
+            return buffer
+        } else {
+            print("createPixelBuffer: ERROR - Could not create pixel buffer (status: \(status))")
             return nil
         }
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+    }
+    
+    /// Render a CIImage into a pixel buffer using the Metal-backed CIContext.
+    private func renderCIImage(_ image: CIImage, to pixelBuffer: CVPixelBuffer) {
+        guard let ciContext = ciContext else {
+            print("renderCIImage: ERROR - CIContext is nil")
+            return
+        }
+        CVPixelBufferLockBaseAddress(pixelBuffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
         
-        guard let pixelData = CVPixelBufferGetBaseAddress(buffer) else { return nil }
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(data: pixelData,
-                                      width: Int(size.width),
-                                      height: Int(size.height),
-                                      bitsPerComponent: 8,
-                                      bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-                                      space: colorSpace,
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) else {
-            return nil
-        }
-        guard let cgImage = image.cgImage else { return nil }
-        context.draw(cgImage, in: CGRect(origin: .zero, size: size))
-        return buffer
+        let bounds = CGRect(origin: .zero,
+                            size: CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
+                                         height: CVPixelBufferGetHeight(pixelBuffer)))
+        ciContext.render(image,
+                         to: pixelBuffer,
+                         bounds: bounds,
+                         colorSpace: CGColorSpaceCreateDeviceRGB())
+        print("renderCIImage: Rendered image into pixel buffer with bounds: \(bounds)")
+    }
+    
+    /// Compute opacity based on the distance from the center frame.
+//    func opacityForIndex(index: Int, centerIndex: Int) -> Double {
+//        let distance = abs(index - centerIndex)
+//        switch distance {
+//        case 0: return 0.5   // Center frame.
+//        case 1: return 0.8
+//        case 2: return 0.9
+//        case 3: return 1.0
+//        default: return 1.0
+//        }
+//    }
+    func opacityForIndex(index: Int,
+                         centerIndex: Int,
+                         sigma: Double = 4.0) -> Double {
+        let d = Double(abs(index - centerIndex))
+        return exp(-pow(d, 2) / (2 * sigma * sigma))
     }
     
     // MARK: - Image Loading Helper
-    
+    /// Load an image from the file system using the frame’s imagePath.
     func loadImage(for frame: Frame) -> UIImage? {
         guard let path = frame.imagePath else {
-            print("No imagePath for frame \(frame.frameName)")
+            print("loadImage: ERROR - No imagePath for frame \(frame.frameName)")
             return nil
         }
         let resolvedPath = FilePathResolver.resolveFullPath(for: path)
         guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            print("File does not exist at path: \(resolvedPath)")
+            print("loadImage: ERROR - File does not exist at path: \(resolvedPath)")
             return nil
         }
         if let image = UIImage(contentsOfFile: resolvedPath) {
-            print("✅ loadImage: Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
+            print("loadImage: ✅ Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
             return image
         } else {
-            print("❌ loadImage: Failed to decode image from file at path: \(resolvedPath)")
+            print("loadImage: ❌ Failed to decode image from file at path: \(resolvedPath)")
             return nil
         }
     }

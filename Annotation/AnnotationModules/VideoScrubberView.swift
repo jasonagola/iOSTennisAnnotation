@@ -60,9 +60,12 @@ struct VideoScrubberView: View {
     @StateObject private var viewModel: VideoScrubberViewModel
     @State private var forwardTimer: Timer?
     @State private var backwardTimer: Timer?
+    private var videoURL: URL
 
     init(videoURL: URL) {
         _viewModel = StateObject(wrappedValue: VideoScrubberViewModel(url: videoURL))
+        self.videoURL = videoURL
+        runCheck()
     }
 
     var body: some View {
@@ -82,6 +85,23 @@ struct VideoScrubberView: View {
         }
     }
 
+    private func runCheck() {
+        // Check that the file exists at outputURL
+        if FileManager.default.fileExists(atPath: videoURL.path),
+           // Try to get the file attributes
+           let attributes = try? FileManager.default.attributesOfItem(atPath: videoURL.path),
+           // Extract the file size as an Int64 and ensure it's greater than 0
+           let fileSize = attributes[.size] as? Int64,
+           fileSize > 0 {
+            
+            print("VSV: Composite video stored at \(videoURL)")
+            print("VSVFile Size: \(fileSize) bytes")
+        } else {
+            print("VSV: File at \(videoURL.path) either does not exist or is empty.")
+        }
+    }
+    
+    
     private func holdButton(label: String, action: @escaping () -> Void, timer: Binding<Timer?>) -> some View {
         Text(label)
             .font(.largeTitle)

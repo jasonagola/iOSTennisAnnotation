@@ -65,6 +65,7 @@ final class AnyProcessingTask: ProcessingTask, ObservableObject {
 
         // Subscribe to published properties for live updates.
         task.statePublisher
+            .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] newState in
                 self?.state = newState
                 print("AnyProcessingTask state update: \(newState)")

@@ -55,6 +55,8 @@ final class ProjectViewModel: ObservableObject {
         do {
             let fetchedFrames = try modelContext.fetch(fetchDescriptor)
             self.frames = fetchedFrames.sorted { $0.frameName < $1.frameName }
+            let resolvedPath = FilePathResolver.resolveFullPath(for: fetchedFrames.first!.imagePath!)
+            print("ProjectView Ex. File location: \(resolvedPath ?? "N/A")")
         } catch {
             print("Error loading frames: \(error)")
         }

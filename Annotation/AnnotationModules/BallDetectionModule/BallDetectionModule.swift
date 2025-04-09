@@ -331,9 +331,10 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
         case "Relate Temporal Detections":
             print("Rendering tool overlay")
             
-            return AnyView(CompositeOverlayView(frameState: frameState))
-//            let videoUrl = frameState.projectDir!.appendingPathComponent("compositeOverlay.mov")
-//            return AnyView(VideoScrubberView(videoURL: videoUrl))
+//            return AnyView(CompositeOverlayView(frameState: frameState))
+            let videoUrl = frameState.projectDir!.appendingPathComponent("compositeOverlay.mov")
+            print("Video url: \(videoUrl)")
+            return AnyView(VideoScrubberView(videoURL: videoUrl))
             
         default:
             print("No tools to render")
