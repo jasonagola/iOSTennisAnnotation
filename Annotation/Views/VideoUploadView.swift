@@ -100,109 +100,130 @@ struct VideoUploadView: View {
         }
     }
     
+    private func validateAndUpdateProjectName(_ name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            projectNameError = "Project name cannot be empty."
+        } else if projects.contains(where: { $0.name.lowercased() == trimmedName.lowercased() }) {
+            projectNameError = "Project name already exists."
+        } else {
+            projectNameError = nil
+        }
+    }
+    
+    private var isProjectNameValid: Bool {
+        let trimmed = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return !projects.contains { $0.name.lowercased() == trimmed.lowercased() }
+    }
+    
     var body: some View {
         NavigationStack {
-            VStack {
-                // MARK: - Top: Video (AVPlayer)
-                if let player {
-                    VideoPlayer(player: player)
-                        .frame(height: 300)
-                        .onAppear {
-                            // Autoplay if desired
-                            player.play()
+            ScrollView {
+                VStack {
+                    // MARK: - Top: Video (AVPlayer)
+                    if let player {
+                        VideoPlayer(player: player)
+                            .frame(height: 300)
+                            .onAppear {
+                                // Autoplay if desired
+                                player.play()
+                            }
+                    } else {
+                        // Placeholder if no video is selected
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(height: 300)
+                            .overlay(
+                                Text("No video selected")
+                                    .foregroundColor(.gray)
+                            )
+                    }
+                    
+                    // MARK: - Inline PhotosPicker for videos
+                    PhotosPicker("Select Video from Photo Library",
+                                 selection: $selectedPhotoItem,
+                                 matching: .videos)
+                    .padding(.top, 16)
+                    .onChange(of: selectedPhotoItem) { newItem in
+                        Task {
+                            guard let newItem else { return }
+                            do {
+                                // Load the video data
+                                if let data = try await newItem.loadTransferable(type: Data.self) {
+                                    // Write it to a temporary file
+                                    let tmpURL = FileManager.default.temporaryDirectory
+                                        .appendingPathComponent(UUID().uuidString)
+                                        .appendingPathExtension("mov")
+                                    try data.write(to: tmpURL, options: .atomic)
+                                    
+                                    // Update state
+                                    videoURL = tmpURL
+                                    avAsset = AVURLAsset(url: tmpURL)
+                                    
+                                    // Create the player
+                                    player = AVPlayer(url: tmpURL)
+                                    
+                                    // Load metadata
+                                    await loadMetadata()
+                                }
+                            } catch {
+                                print("Error loading video from PhotosPicker: \(error)")
+                            }
                         }
-                } else {
-                    // Placeholder if no video is selected
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(height: 300)
-                        .overlay(
-                            Text("No video selected")
-                                .foregroundColor(.gray)
-                        )
-                }
-                
-                // MARK: - Inline PhotosPicker for videos
-                PhotosPicker("Select Video from Photo Library",
-                             selection: $selectedPhotoItem,
-                             matching: .videos)
-                .padding(.top, 16)
-                .onChange(of: selectedPhotoItem) { newItem in
-                    Task {
-                        guard let newItem else { return }
-                        do {
-                            // Load the video data
-                            if let data = try await newItem.loadTransferable(type: Data.self) {
-                                // Write it to a temporary file
-                                let tmpURL = FileManager.default.temporaryDirectory
-                                    .appendingPathComponent(UUID().uuidString)
-                                    .appendingPathExtension("mov")
-                                try data.write(to: tmpURL, options: .atomic)
-                                
+                    }
+                    
+                    // MARK: - Documents button (sheet)
+                    Button("Select Video from Documents") {
+                        showDocumentPicker = true
+                    }
+                    .padding(.top, 16)
+                    .sheet(isPresented: $showDocumentPicker) {
+                        DocumentPickerView { urls in
+                            if let url = urls?.first {
                                 // Update state
-                                videoURL = tmpURL
-                                avAsset = AVURLAsset(url: tmpURL)
+                                videoURL = url
+                                avAsset = AVURLAsset(url: url)
                                 
-                                // Create the player
-                                player = AVPlayer(url: tmpURL)
+                                // Create player
+                                player = AVPlayer(url: url)
                                 
                                 // Load metadata
-                                await loadMetadata()
-                            }
-                        } catch {
-                            print("Error loading video from PhotosPicker: \(error)")
-                        }
-                    }
-                }
-                
-                // MARK: - Documents button (sheet)
-                Button("Select Video from Documents") {
-                    showDocumentPicker = true
-                }
-                .padding(.top, 16)
-                .sheet(isPresented: $showDocumentPicker) {
-                    DocumentPickerView { urls in
-                        if let url = urls?.first {
-                            // Update state
-                            videoURL = url
-                            avAsset = AVURLAsset(url: url)
-                            
-                            // Create player
-                            player = AVPlayer(url: url)
-                            
-                            // Load metadata
-                            Task {
-                                await loadMetadata()
+                                Task {
+                                    await loadMetadata()
+                                }
                             }
                         }
                     }
+                    
+                    // MARK: - If video is loaded, show project & parsing tools
+                    if avAsset != nil {
+                        projectAndParsingTools
+                    }
+                    
+                    // MARK: - NavigationLink to ProcessingQueueView
+                    NavigationLink(destination: ProcessingQueueView(queueManager: queueManager),
+                                   isActive: $navigateToProcessingQueue) {
+                        EmptyView()
+                    }
+                    
+                    // MARK: - Spacer
+                    Spacer()
                 }
-                
-                // MARK: - If video is loaded, show project & parsing tools
-                if avAsset != nil {
-                    projectAndParsingTools
+                .padding()
+                .alert("Enqueue Parse Task", isPresented: $showEnqueueConfirmation) {
+                    Button("Enqueue", role: .destructive) {
+                        enqueueTask()
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text("Are you sure you want to enqueue this parse task?")
                 }
-                
-                // MARK: - NavigationLink to ProcessingQueueView
-                NavigationLink(destination: ProcessingQueueView(queueManager: queueManager),
-                               isActive: $navigateToProcessingQueue) {
-                    EmptyView()
-                }
-                
-                // MARK: - Spacer
-                Spacer()
-            }
-            .padding()
-            .alert("Enqueue Parse Task", isPresented: $showEnqueueConfirmation) {
-                Button("Enqueue", role: .destructive) {
-                    enqueueTask()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("Are you sure you want to enqueue this parse task?")
+                .task{ _ = loadProjectNames()}
             }
         }
     }
+        
     
     // MARK: - Project & Parsing Tools
     @ViewBuilder
@@ -212,14 +233,13 @@ struct VideoUploadView: View {
             Text("Project Name:")
                 .font(.headline)
             TextField("MyProject", text: $projectName)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(projectNameError == nil ? Color.gray : Color.red, lineWidth: 2)
+                )
                 .onChange(of: projectName) { newValue in
-                    // Update the error message in real time.
-                    if !validateProjectName(newValue) {
-                        projectNameError = "Project name already exists or is invalid."
-                    } else {
-                        projectNameError = nil
-                    }
+                    validateAndUpdateProjectName(newValue)
                 }
             
             // Display error message if exists.
@@ -247,6 +267,9 @@ struct VideoUploadView: View {
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .frame(width: 50)
                 .multilineTextAlignment(.center)
+                .onChange(of: frameSkipString) { newValue in
+                    frameSkipString = newValue.filter { $0.isNumber }
+                }
             
             Spacer()
             
@@ -261,11 +284,11 @@ struct VideoUploadView: View {
             Button("Enqueue Parse Task") {
                 showEnqueueConfirmation = true
             }
-            .disabled(!validateProjectName(projectName)) // Disable if validation fails.
+            .disabled(!isProjectNameValid) // Disable if validation fails.
             .padding()
             .cornerRadius(8)
             .foregroundColor(.white)
-            .background(!validateProjectName(projectName) ? Color.gray : Color.blue)
+            .background(isProjectNameValid ? Color.blue : Color.gray)
             
             Spacer()
             
