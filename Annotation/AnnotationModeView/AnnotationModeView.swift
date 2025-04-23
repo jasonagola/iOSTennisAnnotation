@@ -238,27 +238,6 @@ class AnnotationCanvasView: UIView {
             }
         }
     }
-            // Handle Tool Overlay Hosting Controller
-//            if let host = self.toolHost {
-//                print("Existing toolHost found. Updating its rootView.")
-//                let newRoot = ToolRenderOverlayView(
-//                    imageSize: image.size,
-//                    selectedAnnotationModule: self.selectedAnnotationModule
-//                )
-//                host.rootView = newRoot
-//                print("toolHost updated.")
-//            } else {
-//                print("No existing toolHost. Creating a new one.")
-//                let toolOverlay = ToolRenderOverlayView(
-//                    imageSize: image.size,
-//                    selectedAnnotationModule: self.selectedAnnotationModule
-//                )
-//                let host = UIHostingController(rootView: toolOverlay)
-//                host.view.backgroundColor = .clear
-//                self.embed(hostingController: host)
-//                self.toolHost = host
-//                print("Created new toolHost.")
-//            }
 
     private func embed(hostingController: UIHostingController<some View>) {
         // Add hostingController.view as a subview and pin to overlayView bounds.
@@ -454,11 +433,15 @@ struct AnnotationModeView: View {
     @StateObject private var viewModel: AnnotationModeViewModel
     @EnvironmentObject var frameState: FrameState
     @Environment(\.dismiss) var dismiss
-//    @State private var didConfigure = false
+    //    @State private var didConfigure = false
     private var modelContext: ModelContext
     
     @StateObject private var drawerManager: DetectionDrawerManager
     @State private var selectedAnnotationModule: (any AnnotationModule)? = nil
+    
+    //Dropdown Annotation Selection
+    @State private var isDropdownExpanded = false
+    @State private var dropdownAnchorFrame: CGRect = .zero
     
     init(projectUUID: UUID, modelContext: ModelContext, selectedFrameUUID: UUID) {
         self.modelContext = modelContext
@@ -491,68 +474,83 @@ struct AnnotationModeView: View {
         }
         .onAppear {
             frameState.currentFrameUUID = viewModel.selectedFrameUUID
-//            frameState.loadCurrentImage()
+            //            frameState.loadCurrentImage()
         }
         // Listen for changes to currentImage
         .onReceive(frameState.$currentImage) { newImage in
         }
         .navigationViewStyle(StackNavigationViewStyle())
-//        .id(frameState.refreshToken)
+        //        .id(frameState.refreshToken)
     }
     
     // MARK: - Main Content
     @ViewBuilder
     private var content: some View {
-        HStack(spacing: 0) {
-            VStack {
-                topToolbar
-                Divider()
-                
-                if let uiImage = frameState.currentImage {
-                    // The representable that draws the image + annotations:
-                    ScrollableAnnotationCanvasRepresentable(
-                        image: uiImage,
-                        selectedAnnotationModule: viewModel.selectedAnnotationModule,
-                        selectedVisibleAnnotations: viewModel.selectedVisibleAnnotations,
-                        onGesture: { location, event in
-                            Task {
-                                await handleGesture(event, location: location, image: uiImage)
-                            }
-                        },
-                        refreshToken: frameState.refreshToken
-                    )
-                    .background(Color.black)
-                } else {
-                    Text("No images available for annotation.")
-                        .foregroundColor(.white)
+        ZStack(alignment: . topLeading) {
+            HStack(spacing: 0) {
+                VStack {
+                    topToolbar
+                    Divider()
                     
-                    // Additional debug text
-                    Text("FrameState Image: nil")
-                        .foregroundColor(.gray)
+                    if let uiImage = frameState.currentImage {
+                        // The representable that draws the image + annotations:
+                        ScrollableAnnotationCanvasRepresentable(
+                            image: uiImage,
+                            selectedAnnotationModule: viewModel.selectedAnnotationModule,
+                            selectedVisibleAnnotations: viewModel.selectedVisibleAnnotations,
+                            onGesture: { location, event in
+                                Task {
+                                    await handleGesture(event, location: location, image: uiImage)
+                                }
+                            },
+                            refreshToken: frameState.refreshToken
+                        )
+                        .background(Color.black)
+                    } else {
+                        Text("No images available for annotation.")
+                            .foregroundColor(.white)
+                        
+                        // Additional debug text
+                        Text("FrameState Image: nil")
+                            .foregroundColor(.gray)
+                    }
+                    
+                    Divider()
+                    
+                    DynamicToolbar(
+                        selectedModule: viewModel.selectedAnnotationModule,
+                        showDetectionDrawer: $viewModel.showDetectionDrawer,
+                        drawerManager: drawerManager
+                    )
                 }
-                
-                Divider()
-                
-                DynamicToolbar(
-                    selectedModule: viewModel.selectedAnnotationModule,
-                    showDetectionDrawer: $viewModel.showDetectionDrawer,
-                    drawerManager: drawerManager
-                )
-            }
-            .frame(maxWidth: viewModel.showDetectionDrawer ? .infinity : nil)
-            .animation(.easeInOut, value: viewModel.showDetectionDrawer)
-            
-            if viewModel.showDetectionDrawer {
-                DetectionDrawerView(
-                    drawerManager: drawerManager,
-                    showDetectionDrawer: $viewModel.showDetectionDrawer
-                )
-                .transition(.move(edge: .trailing))
+                .frame(maxWidth: viewModel.showDetectionDrawer ? .infinity : nil)
                 .animation(.easeInOut, value: viewModel.showDetectionDrawer)
-                .padding(5)
+                
+                if viewModel.showDetectionDrawer {
+                    DetectionDrawerView(
+                        drawerManager: drawerManager,
+                        showDetectionDrawer: $viewModel.showDetectionDrawer
+                    )
+                    .transition(.move(edge: .trailing))
+                    .animation(.easeInOut, value: viewModel.showDetectionDrawer)
+                    .padding(5)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            
+            if isDropdownExpanded {
+                DropdownList(
+                    options: AnnotationModules.availableModules.keys.sorted(),
+                    selections: $viewModel.selectedVisibleAnnotations
+                )
+                .frame(width: max(dropdownAnchorFrame.width, 200))
+                .position(
+                    x: dropdownAnchorFrame.minX + dropdownAnchorFrame.width / 2,
+                    y: dropdownAnchorFrame.maxY + 10
+                )
+                .zIndex(999)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
     }
     
     // MARK: - Gesture Handling
@@ -588,81 +586,81 @@ struct AnnotationModeView: View {
         }
         
     }
-
-    struct MultiSelectAnnotationTypes: View {
-        @Binding var selections: Set<String>
-        let options: [String]
-        
-        @State private var isExpanded = false
-        @State private var buttonFrame: CGRect = .zero
-  
-        var body: some View {
-            // Use a full-screen ZStack so the overlay isn't clipped.
-            ZStack(alignment: .topLeading) {
-                // The trigger button.
-                Button(action: {
-                    withAnimation {
-                        isExpanded.toggle()
-                    }
-                }) {
-                    HStack {
-                        if selections.isEmpty {
-                            Text("Select annotation types")
-                                .foregroundColor(.gray)
-                        } else {
-                            Text(selections.sorted().joined(separator: ", "))
-                                .foregroundColor(.primary)
-                        }
-                        Spacer()
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .foregroundColor(.gray)
-                    }
-                    .padding(10)
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear
-                                .preference(key: ButtonFramePreferenceKey.self, value: geo.frame(in: .global))
-                        }
-                    )
-                    .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray, lineWidth: 1))
-                }
-                .onPreferenceChange(ButtonFramePreferenceKey.self) { frame in
-                    self.buttonFrame = frame
-                }
-                
-                // When expanded, add an overlay to capture outside taps.
-                if isExpanded {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            withAnimation { isExpanded = false }
-                        }
-                }
-                
-                // The dropdown list overlay.
-                if isExpanded {
-                    DropdownList(options: options, selections: $selections)
-                        .frame(width: max(buttonFrame.width, 150))
-                        // Position the dropdown so its top-left aligns with the button's bottom-left.
-                        .position(
-                            x: buttonFrame.minX + buttonFrame.width / 2,
-                            y: buttonFrame.maxY + dropdownListHeight() / 2
-                        )
-                        .transition(.opacity)
-                        .zIndex(1)
-                }
-            }
-            // Ensure the ZStack occupies the full screen (or at least isn't clipped).
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        
-        // Helper: estimate the height of the dropdown.
-        private func dropdownListHeight() -> CGFloat {
-            // For example, assume each option row is 44 points tall.
-            return CGFloat(options.count) * 44.0
-        }
-    }
-
+    
+    //    struct MultiSelectAnnotationTypes: View {
+    //        @Binding var selections: Set<String>
+    //        let options: [String]
+    //
+    //        @State private var isExpanded = false
+    //        @State private var buttonFrame: CGRect = .zero
+    //
+    //        var body: some View {
+    //            // Use a full-screen ZStack so the overlay isn't clipped.
+    //            ZStack(alignment: .topLeading) {
+    //                // The trigger button.
+    //                Button(action: {
+    //                    withAnimation {
+    //                        isExpanded.toggle()
+    //                    }
+    //                }) {
+    //                    HStack {
+    //                        if selections.isEmpty {
+    //                            Text("Select annotation types")
+    //                                .foregroundColor(.gray)
+    //                        } else {
+    //                            Text(selections.sorted().joined(separator: ", "))
+    //                                .foregroundColor(.primary)
+    //                        }
+    //                        Spacer()
+    //                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+    //                            .foregroundColor(.gray)
+    //                    }
+    //                    .padding(10)
+    //                    .background(
+    //                        GeometryReader { geo in
+    //                            Color.clear
+    //                                .preference(key: ButtonFramePreferenceKey.self, value: geo.frame(in: .global))
+    //                        }
+    //                    )
+    //                    .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray, lineWidth: 1))
+    //                }
+    //                .onPreferenceChange(ButtonFramePreferenceKey.self) { frame in
+    //                    self.buttonFrame = frame
+    //                }
+    //
+    //                // When expanded, add an overlay to capture outside taps.
+    //                if isExpanded {
+    //                    Color.black.opacity(0.001)
+    //                        .ignoresSafeArea()
+    //                        .onTapGesture {
+    //                            withAnimation { isExpanded = false }
+    //                        }
+    //                }
+    //
+    //                // The dropdown list overlay.
+    //                if isExpanded {
+    //                    DropdownList(options: options, selections: $selections)
+    //                        .frame(width: max(buttonFrame.width, 150))
+    //                    // Position the dropdown so its top-left aligns with the button's bottom-left.
+    //                        .position(
+    //                            x: buttonFrame.minX + buttonFrame.width / 2,
+    //                            y: buttonFrame.maxY + dropdownListHeight() / 2
+    //                        )
+    //                        .transition(.opacity)
+    //                        .zIndex(1)
+    //                }
+    //            }
+    //            // Ensure the ZStack occupies the full screen (or at least isn't clipped).
+    //            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    //        }
+    //
+    //        // Helper: estimate the height of the dropdown.
+    //        private func dropdownListHeight() -> CGFloat {
+    //            // For example, assume each option row is 44 points tall.
+    //            return CGFloat(options.count) * 44.0
+    //        }
+    //    }
+    
     struct ButtonFramePreferenceKey: PreferenceKey {
         typealias Value = CGRect
         static var defaultValue: CGRect = .zero
@@ -670,7 +668,7 @@ struct AnnotationModeView: View {
             value = nextValue()
         }
     }
-
+    
     struct DropdownList: View {
         let options: [String]
         @Binding var selections: Set<String>
@@ -713,118 +711,148 @@ struct AnnotationModeView: View {
         }
     }
     
+    struct MultiSelectTriggerButton: View {
+        @Binding var isExpanded: Bool
+        @Binding var anchorFrame: CGRect
+        
+        var label: String
+        
+        var body: some View {
+            Button(action: {
+                withAnimation {
+                    isExpanded.toggle()
+                }
+            }) {
+                HStack {
+                    Text(label)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                }
+                .padding(10)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear
+                            .preference(key: ButtonFramePreferenceKey.self, value: geo.frame(in: .global))
+                    }
+                )
+                .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray, lineWidth: 1))
+            }
+            .onPreferenceChange(ButtonFramePreferenceKey.self) { frame in
+                anchorFrame = frame
+            }
+        }
+    }
+    
     // MARK: - Top Toolbar
     private var topToolbar: some View {
-        HStack {
-            
-            Button(action: { dismiss() }) {
-                Text("Close")
+        ZStack(alignment: .topLeading) {
+            // Base bar with buttons and scroll
+            HStack {
+                Button(action: { dismiss() }) {
+                    Text("Close")
+                        .font(.headline)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.red.opacity(0.9))
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .padding(.horizontal)
+                
+                Divider()
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(AnnotationModules.availableModules.keys.sorted(), id: \.self) { key in
+                            ModuleButton(
+                                key: key,
+                                showDetectionDrawer: $viewModel.showDetectionDrawer,
+                                selectedAnnotationModule: $viewModel.selectedAnnotationModule,
+                                selectedVisibleAnnotations: $viewModel.selectedVisibleAnnotations
+                            )
+                            .environmentObject(drawerManager)
+                        }
+                    }
+                }
+                
+                MultiSelectTriggerButton(
+                    isExpanded: $isDropdownExpanded,
+                    anchorFrame: $dropdownAnchorFrame,
+                    label: viewModel.selectedVisibleAnnotations.isEmpty
+                    ? "Select annotation types"
+                    : viewModel.selectedVisibleAnnotations.sorted().joined(separator: ", ")
+                )
+                
+                // Arrows now stay inside the main HStack
+                HStack(spacing: 8) {
+                    Button(action: {
+                        Task { await prevImage() }
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .padding(8)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(8)
+                    }
+                    Button(action: {
+                        Task { await nextImage() }
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .padding(8)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .frame(height: 50) // ✅ constrain the height of only the bar
+        }
+        .background(Color.purple.opacity(0.2))
+    }
+    
+    
+    // MARK: - ModuleButton
+    @MainActor
+    private struct ModuleButton: View {
+        @EnvironmentObject var frameState: FrameState
+        let key: String
+        @Environment(\.dismiss) var dismiss
+        @Environment(\.modelContext) var modelContext
+        @EnvironmentObject var drawerManager: DetectionDrawerManager
+        
+        @Binding var showDetectionDrawer: Bool
+        @Binding var selectedAnnotationModule: (any AnnotationModule)?
+        @Binding var selectedVisibleAnnotations: Set<String>
+        
+        var body: some View {
+            Button(action: {
+                if let factory = AnnotationModules.availableModules[key] {
+                    drawerManager.clearTiles()
+                    let module = factory(
+                        modelContext,
+                        drawerManager,
+                        $showDetectionDrawer,
+                        frameState
+                    )
+                    selectedAnnotationModule = module
+                    
+                    selectedVisibleAnnotations.insert(key)
+                }
+            }) {
+                Text(key)
                     .font(.headline)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.9))
-                    .foregroundColor(.white)
+                    .background(
+                        (selectedAnnotationModule?.title == key)
+                        ? Color.blue
+                        : Color.gray.opacity(0.3)
+                    )
+                    .foregroundColor(
+                        (selectedAnnotationModule?.title == key)
+                        ? .white
+                        : .black
+                    )
                     .cornerRadius(8)
             }
-            .padding(.horizontal)
-            
-            Divider()
-            
-            // Horizontal scroll for modules
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(AnnotationModules.availableModules.keys.sorted(), id: \.self) { key in
-                        ModuleButton(
-                            key: key,
-                            showDetectionDrawer: $viewModel.showDetectionDrawer,
-                            selectedAnnotationModule: $viewModel.selectedAnnotationModule
-                        )
-                        .environmentObject(drawerManager)
-                    }
-                }
-            }
-            
-            // Navigation arrows
-            HStack(spacing: 8) {
-                MultiSelectAnnotationTypes(
-                    selections: Binding(
-                        get: { viewModel.selectedVisibleAnnotations },
-                        set: { viewModel.selectedVisibleAnnotations = $0 }
-                    ),
-                    options: AnnotationModules.availableModules.keys.sorted()
-                )
-                .padding()
-                Button(action: {
-                    Task {
-                        await prevImage()
-                    }
-                }) {
-                    Image(systemName: "chevron.left")
-                        .padding(8)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(8)
-                }
-                Button(action: {
-                    Task {
-                        await nextImage()
-                    }
-                }) {
-                    Image(systemName: "chevron.right")
-                        .padding(8)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(8)
-                }
-            }
-            .padding(.horizontal)
-            .font(.headline)
-            .foregroundColor(.blue)
-        }
-        .padding()
-        .background(Color.purple.opacity(0.2))
-        .frame(height: 50)
-    }
-}
-
-// MARK: - ModuleButton
-@MainActor
-private struct ModuleButton: View {
-    @EnvironmentObject var frameState: FrameState
-    let key: String
-    @Environment(\.dismiss) var dismiss
-    @Environment(\.modelContext) var modelContext
-    @EnvironmentObject var drawerManager: DetectionDrawerManager
-    
-    @Binding var showDetectionDrawer: Bool
-    @Binding var selectedAnnotationModule: (any AnnotationModule)?
-    
-    var body: some View {
-        Button(action: {
-            if let factory = AnnotationModules.availableModules[key] {
-                drawerManager.clearTiles()
-                let module = factory(
-                    modelContext,
-                    drawerManager,
-                    $showDetectionDrawer,
-                    frameState
-                )
-                selectedAnnotationModule = module
-            }
-        }) {
-            Text(key)
-                .font(.headline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    (selectedAnnotationModule?.title == key)
-                    ? Color.blue
-                    : Color.gray.opacity(0.3)
-                )
-                .foregroundColor(
-                    (selectedAnnotationModule?.title == key)
-                    ? .white
-                    : .black
-                )
-                .cornerRadius(8)
         }
     }
 }
