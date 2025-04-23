@@ -56,6 +56,7 @@ struct ContentView: View {
                         }
                     }
                     Spacer()
+                    //Manually Add History to Processing Queue View 
                     NavigationLink(destination: ProcessingQueueView(queueManager: queueManager)) {
                         Text("View Processing Queue")
                     }
