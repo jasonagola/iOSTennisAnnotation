@@ -12,6 +12,8 @@ struct AnnotationModuleTool: Identifiable {
     let name: String
     var action: () -> Void
     var isSelected: Bool
+    var isTransient: Bool = false
+    var transientClearDelay: TimeInterval? = nil
     var detectionTiles: [DetectionTile] = []
 }
 
@@ -26,22 +28,32 @@ struct DynamicToolbar: View {
         print("Switching Tools...")
         let tools = module.internalTools
         guard tools.indices.contains(index) else { return }
-        
+
         let selected = tools[index]
-        selectedTool = selected
-        
+
         drawerManager.clearTiles()
-        
-        // Update the tiles if the tool has them
         if let tiles = selected.detectionTiles as? [DetectionTile] {
             for tile in tiles {
-                print("Adding tile: \(tile.title)")
                 drawerManager.addTile(tile)
             }
         }
-        
-        // Perform tool action
+
         selected.action()
+
+        if selected.isTransient {
+            selectedTool = selected
+
+            let delay = selected.transientClearDelay ?? 0.3
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    selectedTool = nil
+                }
+            }
+        } else {
+            withAnimation {
+                selectedTool = selected
+            }
+        }
     }
     
         var body: some View {
@@ -65,7 +77,11 @@ struct DynamicToolbar: View {
                                             .font(.subheadline)
                                             .padding(.horizontal, 12)
                                             .padding(.vertical, 8)
-                                            .background(tool.id == selectedTool?.id ? Color.green : Color.blue)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(tool.id == selectedTool?.id ? Color.green : Color.blue)
+                                                    .animation(.easeInOut(duration: 0.25), value: selectedTool?.id)
+                                            )
                                             .foregroundColor(.white)
                                             .cornerRadius(8)
                                     }
