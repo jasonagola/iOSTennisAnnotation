@@ -16,6 +16,8 @@ struct ContentView: View {
     @State private var navigateToProjectView = false
     @State private var showDeleteConfirmation = false
     @State private var refreshID = UUID() // used to force a refresh of the ProjectBrowserView
+    
+    @State private var navPath = NavigationPath()
    
     
     
