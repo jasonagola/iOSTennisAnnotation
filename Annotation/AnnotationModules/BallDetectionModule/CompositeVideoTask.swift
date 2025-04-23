@@ -78,7 +78,7 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
         let frameState = FrameState(modelContext: modelContext,
                                     projectUUID: projectUUID,
                                     selectedFrameUUID: nil)
-        print("CompositeVideoRenderingTask: Loading frames...")
+//        print("CompositeVideoRenderingTask: Loading frames...")
         await frameState.loadFrames()
         
         let totalFrames = frameState.frames.count
@@ -96,7 +96,7 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
         await frameState.configure(modelContext: modelContext, projectUUID: projectUUID)
         
         // Use the resolution of the first frame using loadImage.
-        guard let firstImage = loadImage(for: frameState.frames.first!) else {
+        guard let firstImage = DirectoryLoader.loadImage(for: frameState.frames.first!) else {
             await MainActor.run {
                 self.state = .failed
                 self.statusMessage = "Failed to load first image."
@@ -333,7 +333,7 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
 
         func loadCI(for idx: Int) -> CIImage? {
             guard idx >= 0, idx < frames.count,
-                  let ui = loadImage(for: frames[idx]),
+                  let ui = DirectoryLoader.loadImage(for: frames[idx]),
                   let cg = ui.cgImage else { return nil }
             return CIImage(cgImage: cg)
                 .cropped(to: CGRect(origin: .zero, size: canvasSize))
@@ -474,31 +474,11 @@ final class CompositeVideoRenderingTask: ProcessingTask, ObservableObject {
 //        default: return 1.0
 //        }
 //    }
+    
     func opacityForIndex(index: Int,
                          centerIndex: Int,
                          sigma: Double = 4.0) -> Double {
         let d = Double(abs(index - centerIndex))
         return exp(-pow(d, 2) / (2 * sigma * sigma))
-    }
-    
-    // MARK: - Image Loading Helper
-    /// Load an image from the file system using the frame’s imagePath.
-    func loadImage(for frame: Frame) -> UIImage? {
-        guard let path = frame.imagePath else {
-            print("loadImage: ERROR - No imagePath for frame \(frame.frameName)")
-            return nil
-        }
-        let resolvedPath = FilePathResolver.resolveFullPath(for: path)
-        guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            print("loadImage: ERROR - File does not exist at path: \(resolvedPath)")
-            return nil
-        }
-        if let image = UIImage(contentsOfFile: resolvedPath) {
-            print("loadImage: ✅ Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
-            return image
-        } else {
-            print("loadImage: ❌ Failed to decode image from file at path: \(resolvedPath)")
-            return nil
-        }
     }
 }

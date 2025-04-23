@@ -76,7 +76,7 @@ final class CompositeOverlayViewModel: ObservableObject {
         compositeFrames = preloadRange.map { i in
             let frame = frameState.frames[i]
             // loadImage(for:) and loadDetections(for:) are your helper methods.
-            let image = loadImage(for: frame)
+            let image = DirectoryLoader.loadImage(for: frame)
             let detections = loadDetections(for: frame.id)
             // Hardcoding opacity for simplicity.
             let opacity = 0.1
@@ -89,27 +89,6 @@ final class CompositeOverlayViewModel: ObservableObject {
         //Instead what if I
 
        
-    }
-    
-    // Example helper methods:
-    func loadImage(for frame: Frame) -> UIImage? {
-        print("Calling Load Image...")
-        guard let path = frame.imagePath else {
-            print("No imagePath for frame \(frame.frameName)")
-            return nil
-        }
-        let resolvedPath = FilePathResolver.resolveFullPath(for: path)
-        guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            print("File does not exist at path: \(resolvedPath)")
-            return nil
-        }
-        if let image = UIImage(contentsOfFile: resolvedPath) {
-            print("✅ loadImage: Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
-            return image
-        } else {
-            print("❌ loadImage: Failed to decode image from file at path: \(resolvedPath)")
-            return nil
-        }
     }
     
     func loadDetections(for uuid: UUID) -> [BallDetection] {
@@ -145,7 +124,7 @@ final class CompositeOverlayViewModel: ObservableObject {
         let newIndex = preloadRange.upperBound
         if newIndex < frameState.frames.count {
             let frame = frameState.frames[newIndex]
-            guard let image = loadImage(for: frame) else { return }
+            guard let image = DirectoryLoader.loadImage(for: frame) else { return }
             let detections = loadDetections(for: frame.id)
             let opacity = visibleRange.contains(newIndex) ? 0.5 : 0.1
             let newItem = CompositeFrameItem(index: newIndex,
