@@ -54,7 +54,7 @@ struct VideoUploadView: View {
     @State private var showDocumentPicker = false
     
     // Project Name
-    @State private var projectName: String = "MyProject"
+    @State private var projectName: String = ""
     
     // Frame parsing
     @State private var frameSkipString: String = "1"  // UI text for the skip number
@@ -65,6 +65,40 @@ struct VideoUploadView: View {
     // Enqueue confirmation and navigation to queue view.
     @State private var showEnqueueConfirmation = false
     @State private var navigateToProcessingQueue = false
+    
+    // Validation Alerts
+//    @State private var isProjectNameValid: Bool = false\
+    @State private var projectNameError: String? = nil
+    
+    @State private var projects: [Project] = []
+    
+//    init(queueMananger: ProcessingQueueManager) {
+//        self.queueManager = queueManager
+//    }
+    
+    private func validateProjectName(_ name: String) -> Bool {
+        // Ensure non-empty and trim whitespace.
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return false }
+        
+        let existingProjects = loadProjectNames()
+        // Check for a duplicate, assuming project names are case-insensitive
+        let duplicateExists = existingProjects.contains { $0.name.lowercased() == trimmedName.lowercased() }
+        return !duplicateExists
+    }
+
+    
+    private func loadProjectNames() -> [Project] {
+        let fetchDescriptor = FetchDescriptor<Project>()
+        do {
+            let loadedProjects = try modelContext.fetch(fetchDescriptor)
+            self.projects = loadedProjects.sorted { $0.name < $1.name }
+            return projects
+        } catch {
+            print("Error fetching projects: \(error)")
+            return [] // Returning an empty array in case of error
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -107,7 +141,7 @@ struct VideoUploadView: View {
                                 
                                 // Update state
                                 videoURL = tmpURL
-                                avAsset = AVAsset(url: tmpURL)
+                                avAsset = AVURLAsset(url: tmpURL)
                                 
                                 // Create the player
                                 player = AVPlayer(url: tmpURL)
@@ -131,7 +165,7 @@ struct VideoUploadView: View {
                         if let url = urls?.first {
                             // Update state
                             videoURL = url
-                            avAsset = AVAsset(url: url)
+                            avAsset = AVURLAsset(url: url)
                             
                             // Create player
                             player = AVPlayer(url: url)
@@ -179,6 +213,21 @@ struct VideoUploadView: View {
                 .font(.headline)
             TextField("MyProject", text: $projectName)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
+                .onChange(of: projectName) { newValue in
+                    // Update the error message in real time.
+                    if !validateProjectName(newValue) {
+                        projectNameError = "Project name already exists or is invalid."
+                    } else {
+                        projectNameError = nil
+                    }
+                }
+            
+            // Display error message if exists.
+            if let error = projectNameError {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+            }
         }
         .padding(.vertical, 8)
         
@@ -212,10 +261,11 @@ struct VideoUploadView: View {
             Button("Enqueue Parse Task") {
                 showEnqueueConfirmation = true
             }
+            .disabled(!validateProjectName(projectName)) // Disable if validation fails.
             .padding()
             .cornerRadius(8)
             .foregroundColor(.white)
-            .background(isParsingFrames ? Color.orange : Color.blue)
+            .background(!validateProjectName(projectName) ? Color.gray : Color.blue)
             
             Spacer()
             
@@ -266,11 +316,19 @@ struct VideoUploadView: View {
     
     // MARK: - Enqueue Task Logic
     private func enqueueTask() {
+        // Re-check validation before proceeding.
+        guard validateProjectName(projectName) else {
+            parseMessage = "Project name already exists or is invalid."
+            return
+        }
+        
         guard let asset = avAsset,
-              let skipCount = Int(frameSkipString), skipCount > 0 else {
+              let skipCount = Int(frameSkipString),
+              skipCount > 0 else {
             parseMessage = "Invalid asset or skip count."
             return
         }
+        
         isParsingFrames = true
         parseMessage = "Enqueuing task..."
         
@@ -278,8 +336,7 @@ struct VideoUploadView: View {
                                        title: projectName,
                                        asset: asset,
                                        projectName: projectName,
-                                       frameSkip: skipCount
-        )
+                                       frameSkip: skipCount)
         queueManager.add(task: task)
         
         parseMessage = "Task enqueued!"
@@ -591,6 +648,7 @@ struct VideoUploadView: View {
                                 // 7. Create and return the Frame object.
                                 return Frame(frameName: frameName,
                                              project: project,
+                                             index: i,
                                              imagePath: relativeImagePath,
                                              thumbnailPath: relativeThumbnailPath)
                             } catch {
