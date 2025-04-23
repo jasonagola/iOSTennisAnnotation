@@ -114,13 +114,19 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
                 name: "Process Entire Frame",
                 action: { [weak self] in
                     if let tool = self?.internalTools.first(where: { $0.name == "Process Entire Frame" }) {
-                        self?.selectTool(tool)
+                        
+//                        self?.selectTool(tool)  Not Necessary as its just a button not a selection
                         // FIXME: Reset Tool Selection
                         print("BDM #5: 'Process Entire Frame' tool selected")
                         self?.processEntireFrame()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self?.clearToolSelection()
+                        }
                     }
                 },
                 isSelected: false,
+                isTransient: true,
+                transientClearDelay: 0.5,
                 detectionTiles: [
                     DetectionTile(title: "Ball Detections", content: {
                         BallDetectionTile(frameState: self.frameState, modelContext: self.modelContext)
@@ -156,6 +162,15 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
             return updatedTool
         }
 //        print("BDM #6: Tool selected - \(tool.name) with current frameUUID: \(frameState.currentFrameUUID ?? )")
+    }
+    
+    private func clearToolSelection() {
+        activeTool = nil
+        internalTools = internalTools.map {
+            var updated = $0
+            updated.isSelected = false
+            return updated
+        }
     }
     
     // MARK: - User Interaction
@@ -395,6 +410,7 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
         for centerPoint in roiCollection {
             detectBall(at: centerPoint, in: currentImage, using: frameUUID)
         }
+        clearToolSelection()
     }
     
     // MARK: - Ball Detection
