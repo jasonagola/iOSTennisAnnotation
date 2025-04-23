@@ -25,6 +25,10 @@ struct RenderedAnnotationsView: View {
                 )
             }
             // Additional annotation modules as needed.
-        }  
+        }
+        .onAppear {
+            print("Rendered Annotations View Loaded")
+        }
+        
     }
 }

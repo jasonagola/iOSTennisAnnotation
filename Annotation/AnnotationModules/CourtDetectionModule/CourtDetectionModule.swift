@@ -10,6 +10,10 @@ import SwiftData
 
 
 class CourtDetectionModule: AnnotationModule, ObservableObject {
+    func toolOverlayPath(in imageSize: CGSize) -> CGPath? {
+        return nil
+    }
+    
     private var frameState: FrameState
     
     var title: String { "Court Detection" }

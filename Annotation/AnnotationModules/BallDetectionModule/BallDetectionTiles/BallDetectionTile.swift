@@ -101,7 +101,6 @@ struct BallDetectionTile: View {
                 BallDetectionItemView(
                     detection: detection,
                     onDelete: {
-                        //FIXME: handle detection passing vs frameState collection
                         Task {
                             await viewModel.selectDetection(detection)
                             await viewModel.deleteSelectedDetection(detection)

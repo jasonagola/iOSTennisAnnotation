@@ -65,10 +65,6 @@ extension FrameState {
     
     // MARK: Add Ball Annotation
     func addBallAnnotation(_ detection: BallDetection, frameUUID: UUID) {
-//        guard let frameUUID = currentFrameUUID else {
-//            print("⚠️ addBallAnnotation: No currentFrameUUID available")
-//            return
-//        }
 
         // Check for similar detection already in annotations
         let isDuplicate = ballDetections.contains(where: { existing in
@@ -82,6 +78,7 @@ extension FrameState {
         guard !isDuplicate else {
             print("⚠️ addBallAnnotation: Duplicate detection, skipping enqueue.")
             return
+//            TODO: Add detection tile to handle duplicate review.  Can choose to force/view potential duplicates. 
         }
 
         enqueue(InsertBallDetectionTask(detection: detection))

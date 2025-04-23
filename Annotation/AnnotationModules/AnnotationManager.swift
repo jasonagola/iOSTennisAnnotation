@@ -38,14 +38,16 @@ final class Frame {
     @Attribute(.unique) var id: UUID = UUID()
     var frameName: String
     var project: Project
+    var index: Int
     
     // Store relative paths instead of absolute paths.
     var imagePath: String?
     var thumbnailPath: String?
 
-    init(frameName: String, project: Project, imagePath: String? = nil, thumbnailPath: String? = nil) {
+    init(frameName: String, project: Project, index: Int, imagePath: String? = nil, thumbnailPath: String? = nil) {
         self.frameName = frameName
         self.project = project
+        self.index = index
         self.imagePath = imagePath
         self.thumbnailPath = thumbnailPath
     }
@@ -109,7 +111,7 @@ final class AnnotationRecord {
 @Model
 final class BallDetection {
     @Attribute(.unique) var id: UUID = UUID()
-    
+
     var boundingBoxMinX: Double
     var boundingBoxMinY: Double
     var boundingBoxWidth: Double
@@ -131,14 +133,25 @@ final class BallDetection {
     var annotationRecord: AnnotationRecord?
     
     var frameUUID: UUID?
+//    var frameIndex: Int
+    
+    //Could directly reference the frame
+//    var frame: Frame?
+//
+//    var computedFrameIndex: Int {
+//        frame?.index ?? frameIndex
+//    }
 
-    init(boundingBox: CGRect,
-         computedCenter: CGPoint,
-         roiBoundingBox: CGRect,
-         visibility: BallVisibility,
-         behavior: BallBehaviorOptions = [],
-         annotationRecord: AnnotationRecord? = nil,
-         frameUUID: UUID? = nil) {
+    init(
+        boundingBox: CGRect,
+        computedCenter: CGPoint,
+        roiBoundingBox: CGRect,
+        visibility: BallVisibility,
+        behavior: BallBehaviorOptions = [],
+        annotationRecord: AnnotationRecord? = nil,
+        frameUUID: UUID? = nil
+//        frameIndex: Int
+    ) {
         self.boundingBoxMinX = boundingBox.origin.x
         self.boundingBoxMinY = boundingBox.origin.y
         self.boundingBoxWidth = boundingBox.width
@@ -158,8 +171,13 @@ final class BallDetection {
         self.annotationRecord = annotationRecord
         
         self.frameUUID = frameUUID
+//        self.frameIndex = frameIndex
     }
     
+    var computeFrameIndex: Int{
+        //TODO: Cascade Frame index property to matched Detections
+        return 0
+    }
     // Computed properties...
     var boundingBoxRect: CGRect {
         CGRect(x: boundingBoxMinX, y: boundingBoxMinY, width: boundingBoxWidth, height: boundingBoxHeight)

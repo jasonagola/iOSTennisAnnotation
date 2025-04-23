@@ -17,6 +17,7 @@ struct AnnotationRenderUtilities {
         // Transform detections into image space.
         print("Running Render Utilities: renderBallDetectionAnnotations")
         let annotationsInImageSpace = ballDetections.map { detection -> (CGRect, UUID) in
+            print("ARU: ballDetection: \(detection)")
             let boundingBox = CGRect(
                 x: detection.boundingBoxMinX * imageSize.width,
                 y: detection.boundingBoxMinY * imageSize.height,
