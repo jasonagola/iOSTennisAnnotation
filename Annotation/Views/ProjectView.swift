@@ -418,27 +418,6 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
     }
     
     private let frameBuffer = FrameBuffer(maxSize: 10)
-    
-    // Example helper methods:
-    func loadImage(for frame: Frame) -> UIImage? {
-        print("Calling Load Image...")
-        guard let path = frame.imagePath else {
-            print("No imagePath for frame \(frame.frameName)")
-            return nil
-        }
-        let resolvedPath = FilePathResolver.resolveFullPath(for: path)
-        guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            print("File does not exist at path: \(resolvedPath)")
-            return nil
-        }
-        if let image = UIImage(contentsOfFile: resolvedPath) {
-            print("✅ loadImage: Successfully loaded image for frame \(frame.frameName) (\(frame.id))")
-            return image
-        } else {
-            print("❌ loadImage: Failed to decode image from file at path: \(resolvedPath)")
-            return nil
-        }
-    }
 
     // MARK: - ProcessingTask Methods
     func start() async {
@@ -476,7 +455,7 @@ final class BallDetectionProcessingBatchTask: ProcessingTask, ObservableObject {
             // Update the FrameState's current frame.
             
             //LoadImage
-            guard let image = loadImage(for: frame) else {return}
+            guard let image = DirectoryLoader.loadImage(for: frame) else {return}
 
             // Instantiate a BallDetectionModule using your factory.
             guard let factory = AnnotationModules.availableModules["Ball Detection"] else {
