@@ -347,31 +347,14 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
     func renderToolOverlay(imageSize: CGSize) -> AnyView {
         switch activeTool?.name {
         case "Manual Selection":
-            return AnyView (
-                ZStack {
-                    if let currentBox = currentBoundingBox {
-                        let rect = CGRect(
-                            x: currentBox.origin.x * imageSize.width,
-                            y: currentBox.origin.y * imageSize.height,
-                            width: currentBox.width * imageSize.width,
-                            height: currentBox.height * imageSize.height
-                        )
-                        
-                        Rectangle()
-                            .stroke(Color.green, style: StrokeStyle(lineWidth: 2, dash: [6]))
-                            .frame(width: rect.width, height: rect.height)
-                            .position(x: rect.midX, y: rect.midY)
-                    }
-                }
-            )
-            
+            return AnyView(EmptyView())
         case "Relate Temporal Detections":
             print("Relate Temporal Detections")
             
 //            return AnyView(CompositeOverlayView(frameState: frameState))
             let videoUrl = frameState.projectDir!.appendingPathComponent("compositeOverlay.mov")
             print("Video url: \(videoUrl)")
-            return AnyView(VideoScrubberView(videoURL: videoUrl, frameState: frameState))
+            return AnyView(VideoScrubberView(videoURL: videoUrl, frameState: frameState, imageSize: imageSize))
             
         default:
             print("No tools to render")
@@ -379,9 +362,6 @@ final class BallDetectionModule: AnnotationModule, ObservableObject {
         }
     }
 
-
-    
-    
     // MARK: - Processing Entire Frame
     
     func processEntireFrame(with externalImage: UIImage? = nil, frameUUID: UUID? = nil) {

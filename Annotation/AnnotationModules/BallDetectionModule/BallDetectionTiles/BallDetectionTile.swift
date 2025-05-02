@@ -132,6 +132,17 @@ struct BallDetectionTile: View {
             VStack(alignment: .leading, spacing: 8) {
                 // Delete Button - Always visible but conditional style
                 HStack {
+                    Button(action: toggleKeyFrame) {
+                        Image(systemName: "star")
+                            .foregroundColor(isSelected ? .yellow : .gray)
+                    }
+                    .disabled(!isSelected)
+                    
+                    Button(action: viewRally) {
+                        Image(systemName: "tennisball")
+                            .foregroundStyle(isSelected ? .green : .gray)
+                    }
+                    
                     Spacer()
                     Button(action: onDelete) {
                         Image(systemName: "trash")
@@ -222,6 +233,14 @@ struct BallDetectionTile: View {
                 detection.behavior.insert(option)
             }
             print("Updated behaviors: \(detection.behavior)")
+        }
+        
+        private func toggleKeyFrame() {
+            
+        }
+        
+        private func viewRally() {
+            
         }
     }
 }

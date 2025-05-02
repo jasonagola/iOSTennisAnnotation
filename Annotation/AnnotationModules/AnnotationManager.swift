@@ -106,11 +106,25 @@ final class AnnotationRecord {
     }
 }
 
+@Model
+final class Rally {
+    @Attribute(.unique) var id: UUID = UUID()
+    
+    var ballPositions: [BallDetection] = []
+    
+    init(
+        ballPositions: [BallDetection] = []
+    ) {
+        self.ballPositions = ballPositions
+    }
+}
+
 
 //MARK: BallDetection Model
 @Model
 final class BallDetection {
     @Attribute(.unique) var id: UUID = UUID()
+    var rally: Rally?
 
     var boundingBoxMinX: Double
     var boundingBoxMinY: Double

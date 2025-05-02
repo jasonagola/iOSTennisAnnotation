@@ -25,6 +25,7 @@ class VideoScrubberViewModel: ObservableObject {
     @Published var currentTime: CMTime = .zero
     @Published var totalDetections: Int = 0
     @Published var detections: [UUID: [BallDetection]] = [:]
+    var imageSize: CGSize?
     
     // Video meta data property (optional until loaded)
     @Published var videoMetaData: VideoMetaData?
@@ -182,53 +183,116 @@ struct VideoScrubberView: View {
     @State private var forwardTimer: Timer?
     @State private var backwardTimer: Timer?
     private var videoURL: URL
+    private var imageSize: CGSize
     
-    init(videoURL: URL, frameState: FrameState) {
+    init(videoURL: URL, frameState: FrameState, imageSize: CGSize) {
         self.videoURL = videoURL
         self.frameState = frameState
+        self.imageSize = imageSize
         _viewModel = StateObject(wrappedValue: VideoScrubberViewModel(url: videoURL, frameState: frameState))
         runCheck()
     }
     
     var body: some View {
-        ZStack {
+        // 1) Compute these outside of the ZStack builder
+        let center = viewModel.centerFrameIndex
+        let prevIndex = center - 1
+        let futureIndices = (1...5)
+            .map { center + $0 }
+            .filter { $0 < viewModel.sortedFrames.count }
+        
+        return ZStack {
             VideoPlayer(player: viewModel.player)
+                .opacity(1)
                 .onAppear { viewModel.player.play() }
             
-//            // Overlay the detection annotations.
-//            if let currentDetections = viewModel.detections[viewModel.centerFrameUUID] {
-//                ForEach(Array(currentDetections.enumerated()), id: \.element.id) { index, detection in
-//                    annotationView(for: detection, index: index)
-//                        .zIndex(100)
-//                }
-//            }
-            
-//            // Scrubber controls appear on top.
-//            HStack {
-//                holdButton(label: "⏪", action: viewModel.stepBackward, timer: $backwardTimer)
-//                Spacer()
-//                holdButton(label: "⏩", action: viewModel.stepForward, timer: $forwardTimer)
-//            }
-//            .padding()
-//            .id("Scrubber")
-        }
-    }
-    
-    // MARK: - Annotation Overlay
-    private func annotationView(for detection: BallDetection, index: Int) -> some View {
-        Rectangle()
-            .stroke(colorForAnnotation(index), lineWidth: 2)
-            .id(detection.id)
-            .frame(width: detection.boundingBoxWidth, height: detection.boundingBoxHeight)
-            .position(x: detection.computedCenterX, y: detection.computedCenterY)
-            .zIndex(zIndexForAnnotation(index))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                // Set the new frame based on detection tap.
-                viewModel.centerFrameIndex = index
+            // 1) Previous frame (red, lower z)
+            if prevIndex >= 0 {
+                let uuid = viewModel.sortedFrames[prevIndex].id
+                if let dets = viewModel.detections[uuid] {
+                    detectionRects(dets, color: .red,   z: 80)
+                }
             }
+
+            // 2) Current frame (blue, top z)
+            if let currUUID = viewModel.sortedFrames[safe: center]?.id,
+               let dets = viewModel.detections[currUUID] {
+                detectionRects(dets, color: .blue,  z:100)
+            }
+
+            // 3) Next 5 frames (green, mid z)
+            ForEach(futureIndices, id: \.self) { idx in
+                let uuid = viewModel.sortedFrames[idx].id
+                if let dets = viewModel.detections[uuid] {
+                    detectionRects(dets, color: .green, z: 90)
+                }
+            }
+        }
+        .frame(width: imageSize.width, height: imageSize.height)
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    // figure out if that press is inside the CURRENT‐frame box…
+                    if let currUUID = viewModel.sortedFrames[safe: viewModel.centerFrameIndex]?.id,
+                       let dets = viewModel.detections[currUUID] {
+                        let loc = value.location
+                        for det in dets {
+                            let box = CGRect(
+                                x: det.boundingBoxMinX * imageSize.width,
+                                y: det.boundingBoxMinY * imageSize.height,
+                                width: det.boundingBoxWidth  * imageSize.width,
+                                height: det.boundingBoxHeight * imageSize.height
+                            )
+                            if box.contains(loc) {
+                                // this fires on _finger-down_ and continues as you hold
+                                viewModel.stepForward()
+                                break
+                            }
+                        }
+                    }
+                }
+        )
     }
-    
+
+    @ViewBuilder
+       private func detectionRects(
+           _ detections: [BallDetection],
+           color: Color,
+           z: Double
+       ) -> some View {
+           ForEach(detections, id: \.id) { det in
+               detectionRectView(det, strokeColor: color, z: z)
+           }
+       }
+
+       private func detectionRectView(
+           _ det: BallDetection,
+           strokeColor: Color,
+           z: Double
+       ) -> some View {
+           // convert from normalized → image space
+           let rect = CGRect(
+               x: det.boundingBoxMinX * imageSize.width,
+               y: det.boundingBoxMinY * imageSize.height,
+               width: det.boundingBoxWidth  * imageSize.width,
+               height: det.boundingBoxHeight * imageSize.height
+           )
+           return Rectangle()
+               .stroke(strokeColor, lineWidth: 4)
+               .frame(width: rect.width, height: rect.height)
+               .position(x: rect.midX, y: rect.midY)
+               .contentShape(Rectangle())
+               .zIndex(z)
+               .onLongPressGesture(minimumDuration: 0,
+                                   maximumDistance: .infinity,
+                                   pressing: { down in
+                   if down && z == 100 {
+                       // only advance on the current‐frame layer
+                       viewModel.stepForward()
+                   }
+               }, perform: {})
+       }
+
     private func colorForAnnotation(_ index: Int) -> Color {
         let distance = abs(index - viewModel.centerFrameIndex)
         switch distance {
@@ -240,6 +304,8 @@ struct VideoScrubberView: View {
         default: return .white
         }
     }
+    
+
     
     private func zIndexForAnnotation(_ index: Int) -> Double {
         let distance = abs(index - viewModel.centerFrameIndex)

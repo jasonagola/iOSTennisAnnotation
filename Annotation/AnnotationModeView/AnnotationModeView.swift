@@ -140,7 +140,7 @@ class AnnotationCanvasView: UIView {
         // which can complicate coordinate mapping for annotations.
         imageView.contentMode = .topLeft
         imageView.frame = bounds
-        addSubview(imageView)
+//        addSubview(imageView)
         
         overlayView.backgroundColor = .clear
         overlayView.frame = bounds
@@ -164,11 +164,13 @@ class AnnotationCanvasView: UIView {
         // Tap gesture
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapGesture(_:)))
         tapGesture.delegate = self
+        tapGesture.cancelsTouchesInView = false
         overlayView.addGestureRecognizer(tapGesture)
         
         // Pan gesture for drag events.
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
         panGesture.delegate = self
+        panGesture.cancelsTouchesInView = false
         //Enforce pass down drag events to Annotation Modules to be 1 finger drag gestures only for drawing or other methods
         panGesture.minimumNumberOfTouches = 1
         panGesture.maximumNumberOfTouches = 1
@@ -212,7 +214,7 @@ class AnnotationCanvasView: UIView {
         DispatchQueue.main.async { [weak self] in
             guard let self = self, let image = self.image else { return }
 
-            // 1) Annotation overlay – create once, then update
+            // 1) Annotation overlay – create once, then update.  View Provides ability to interact with annotations
             let annotationView = RenderedAnnotationsView(
                 imageSize: image.size,
                 selectedVisibleAnnotations: self.selectedVisibleAnnotations,
@@ -226,14 +228,27 @@ class AnnotationCanvasView: UIView {
                 self.embed(hostingController: host)
                 self.annotationHost = host
             }
+            
+            //2) RenderToolOverlay - interactive tool overlay layer
+            let toolOverlayView = ToolRenderOverlayView(
+                imageSize: image.size,
+                selectedAnnotationModule: self.selectedAnnotationModule
+            )
+            if let host = self.toolHost {
+                host.rootView = toolOverlayView
+            } else {
+                let host = UIHostingController(rootView: toolOverlayView)
+                host.view.backgroundColor = .clear
+                self.embed(hostingController: host)
+                self.toolHost = host
+            }
+            
 
-            // 2) Tool overlay path – redraw the shape layer every time
+            // 3) Tool overlay path – redraw the shape layer every time. No interaction on this layer.  Just drawing visualizations
             if let module = self.selectedAnnotationModule,
                let path = module.toolOverlayPath(in: image.size) {
-                print("Running to add path to toolOverlayLayer.")
                 self.toolOverlayLayer.path = path
             } else {
-                print("No path to render")
                 self.toolOverlayLayer.path = nil
             }
         }
@@ -586,80 +601,6 @@ struct AnnotationModeView: View {
         }
         
     }
-    
-    //    struct MultiSelectAnnotationTypes: View {
-    //        @Binding var selections: Set<String>
-    //        let options: [String]
-    //
-    //        @State private var isExpanded = false
-    //        @State private var buttonFrame: CGRect = .zero
-    //
-    //        var body: some View {
-    //            // Use a full-screen ZStack so the overlay isn't clipped.
-    //            ZStack(alignment: .topLeading) {
-    //                // The trigger button.
-    //                Button(action: {
-    //                    withAnimation {
-    //                        isExpanded.toggle()
-    //                    }
-    //                }) {
-    //                    HStack {
-    //                        if selections.isEmpty {
-    //                            Text("Select annotation types")
-    //                                .foregroundColor(.gray)
-    //                        } else {
-    //                            Text(selections.sorted().joined(separator: ", "))
-    //                                .foregroundColor(.primary)
-    //                        }
-    //                        Spacer()
-    //                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-    //                            .foregroundColor(.gray)
-    //                    }
-    //                    .padding(10)
-    //                    .background(
-    //                        GeometryReader { geo in
-    //                            Color.clear
-    //                                .preference(key: ButtonFramePreferenceKey.self, value: geo.frame(in: .global))
-    //                        }
-    //                    )
-    //                    .background(RoundedRectangle(cornerRadius: 8).stroke(Color.gray, lineWidth: 1))
-    //                }
-    //                .onPreferenceChange(ButtonFramePreferenceKey.self) { frame in
-    //                    self.buttonFrame = frame
-    //                }
-    //
-    //                // When expanded, add an overlay to capture outside taps.
-    //                if isExpanded {
-    //                    Color.black.opacity(0.001)
-    //                        .ignoresSafeArea()
-    //                        .onTapGesture {
-    //                            withAnimation { isExpanded = false }
-    //                        }
-    //                }
-    //
-    //                // The dropdown list overlay.
-    //                if isExpanded {
-    //                    DropdownList(options: options, selections: $selections)
-    //                        .frame(width: max(buttonFrame.width, 150))
-    //                    // Position the dropdown so its top-left aligns with the button's bottom-left.
-    //                        .position(
-    //                            x: buttonFrame.minX + buttonFrame.width / 2,
-    //                            y: buttonFrame.maxY + dropdownListHeight() / 2
-    //                        )
-    //                        .transition(.opacity)
-    //                        .zIndex(1)
-    //                }
-    //            }
-    //            // Ensure the ZStack occupies the full screen (or at least isn't clipped).
-    //            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    //        }
-    //
-    //        // Helper: estimate the height of the dropdown.
-    //        private func dropdownListHeight() -> CGFloat {
-    //            // For example, assume each option row is 44 points tall.
-    //            return CGFloat(options.count) * 44.0
-    //        }
-    //    }
     
     struct ButtonFramePreferenceKey: PreferenceKey {
         typealias Value = CGRect
