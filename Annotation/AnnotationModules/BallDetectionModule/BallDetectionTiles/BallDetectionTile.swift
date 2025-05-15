@@ -82,7 +82,15 @@ struct BallDetectionTile: View {
             content
         }
 //        id(viewModel.needsRefresh)
-        .background(Color(UIColor.systemBackground))
+//        .background(Color(UIColor.systemBackground))
+        .background(
+            LinearGradient(
+                gradient: Gradient(colors: [Color.black, Color.black.opacity(0.8)]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+//        .padding(12)
         .cornerRadius(8)
     }
         
@@ -92,28 +100,37 @@ struct BallDetectionTile: View {
             Text("No ball detections available")
                 .foregroundColor(.gray)
         } else {
-            Button {
-                Task { await frameState.copyPreviousDetectionBehavior() }
-            } label: {
-                Image(systemName: "document.on.document")
-            }
-            ForEach(frameState.ballDetections, id: \.id) { detection in
-                BallDetectionItemView(
-                    detection: detection,
-                    onDelete: {
+            VStack {
+                HStack {
+                    Button {
+                        Task { await frameState.copyPreviousDetectionBehavior() }
+                    } label: {
+                        Image(systemName: "document.on.document")
+                    }
+                }
+                .background(Color.red)
+                .cornerRadius(5)
+                .padding(12)
+                
+                ForEach(frameState.ballDetections, id: \.id) { detection in
+                    BallDetectionItemView(
+                        detection: detection,
+                        onDelete: {
+                            Task {
+                                await viewModel.selectDetection(detection)
+                                await viewModel.deleteSelectedDetection(detection)
+                            }
+                        }
+                    )
+                    .onTapGesture {
                         Task {
                             await viewModel.selectDetection(detection)
-                            await viewModel.deleteSelectedDetection(detection)
                         }
-                    }
-                )
-                .onTapGesture {
-                    Task {
-                        await viewModel.selectDetection(detection)
-                    }
-                    
-                }// Optional: suppress default styling
+                        
+                    }// Optional: suppress default styling
+                }
             }
+            .padding(5)
         }
     }
     
@@ -134,22 +151,24 @@ struct BallDetectionTile: View {
                 HStack {
                     Button(action: toggleKeyFrame) {
                         Image(systemName: "star")
-                            .foregroundColor(isSelected ? .yellow : .gray)
+                            .foregroundColor(isSelected ? .yellow : .white)
                     }
                     .disabled(!isSelected)
                     
                     Button(action: viewRally) {
                         Image(systemName: "tennisball")
-                            .foregroundStyle(isSelected ? .green : .gray)
+                            .foregroundStyle(isSelected ? .green : .white)
                     }
                     
                     Spacer()
                     Button(action: onDelete) {
                         Image(systemName: "trash")
-                            .foregroundColor(isSelected ? .red : .gray)
+                            .foregroundColor(isSelected ? .red : .white)
                     }
                     .disabled(!isSelected)
                 }
+                .padding(5)
+                .background(Color.blue.opacity(1))
                 
                 // Detection Info
                 VStack(alignment: .leading, spacing: 4) {
@@ -163,6 +182,8 @@ struct BallDetectionTile: View {
                     Text("BBox: \(Int(detection.boundingBoxWidth)) x \(Int(detection.boundingBoxHeight))")
                         .font(.caption2)
                 }
+                .padding(5)
+                .background(Color.black.opacity(0.9))
                 
                 // Show options only if selected
                 if frameState.selectedAnnotationUUID == detection.id {
@@ -170,9 +191,9 @@ struct BallDetectionTile: View {
                     behaviorRow
                 }
             }
-            //        .padding(10)
-            .background(isSelected ? Color.blue.opacity(0.15) : Color.gray.opacity(0.05))
-            .cornerRadius(8)
+            .background(isSelected ? Color.black.opacity(0.4) : Color.gray.opacity(0.2))
+//            .padding(12)
+            .cornerRadius(10)
         }
         
         // MARK: - Visibility Options
@@ -190,10 +211,6 @@ struct BallDetectionTile: View {
                         )
                         .foregroundColor(.primary)
                         .cornerRadius(10)
-                    //                    .overlay(
-                    //                        RoundedRectangle(cornerRadius: 10)
-                    //                            .stroke(detection.visibility == option.rawValue ? Color.primary.opacity(0.4) : .clear, lineWidth: 1)
-                    //                    )
                         .onTapGesture {
                             detection.visibility = option.rawValue
                         }
@@ -201,7 +218,7 @@ struct BallDetectionTile: View {
             }
             .background(.white.opacity(0.5))
             .cornerRadius(10)
-            .padding(0.5)
+            .padding(5)
         }
         
         // MARK: - Behavior Options
@@ -224,8 +241,9 @@ struct BallDetectionTile: View {
                    }
                }
             }
+            .padding(5)
         }
-        
+    
         private func toggleBehavior(_ option: BallBehaviorOptions) {
             if detection.behavior.contains(option) {
                 detection.behavior.remove(option)
@@ -247,3 +265,5 @@ struct BallDetectionTile: View {
 
 
 // TODO: IMplement a previous frame copy mechanism.  Find near Detections and Copy behavior.  Also implement a track/rallyID to string together the same ball temporally
+
+

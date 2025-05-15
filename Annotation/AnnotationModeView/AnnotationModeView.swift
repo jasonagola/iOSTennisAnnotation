@@ -140,7 +140,7 @@ class AnnotationCanvasView: UIView {
         // which can complicate coordinate mapping for annotations.
         imageView.contentMode = .topLeft
         imageView.frame = bounds
-//        addSubview(imageView)
+        addSubview(imageView)
         
         overlayView.backgroundColor = .clear
         overlayView.frame = bounds

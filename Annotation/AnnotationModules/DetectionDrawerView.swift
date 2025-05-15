@@ -53,20 +53,26 @@ struct DetectionDrawerView: View {
                 
                 // Display the tiles from the manager in a scrollable list.
                 ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(drawerManager.tiles) { tile in
-                            VStack(alignment: .leading) {
-                                Text(tile.title)
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                    .padding(.bottom, 5)
+                    ForEach(Array(drawerManager.tiles.enumerated()), id: \.element.id) { index, tile in
+                        VStack(alignment: .leading) {
+                            Text(tile.title)
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(5)
 
-                                tile.content // ✅ Use content properly
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(0) //Fill entire detection drawer with children
-                            .background(Color.gray.opacity(0.3))
-                            .cornerRadius(8)
+                            tile.content
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(0)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(8)
+
+                        // ✅ Add a visual divider if it's not the last tile
+                        if index < drawerManager.tiles.count - 1 {
+                            Divider()
+                                .frame(height: 1)
+                                .background(Color.white.opacity(0.3))
+                                .padding(.vertical, 4)
                         }
                     }
                     .padding(.horizontal, 2)
@@ -76,7 +82,7 @@ struct DetectionDrawerView: View {
                 Spacer()
             }
             .frame(width: drawerWidth)
-            .background(Color.black.opacity(0.8))
+            .background(Color.black.opacity(1))
             .offset(x: showDetectionDrawer ? 0 : drawerWidth)
             .animation(.easeInOut, value: showDetectionDrawer)
             .id(frameState.refreshToken)
